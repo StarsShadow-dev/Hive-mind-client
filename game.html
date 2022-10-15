@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<script src="phaser.js"></script>
+	<title>hive mind</title>
+</head>
+<body>
+	<form id="login">
+        <div class="form-control">
+            <label for="UUID">UUID</label>
+            <input
+            type="text"
+            name="UUID"
+            id="UUID"
+            placeholder="Enter UUID"
+            autocomplete="off"
+            required
+            />
+        </div>
+        <div class="form-control">
+            <label for="token">token</label>
+            <input
+            type="text"
+            name="token"
+            id="token"
+            placeholder="Enter token"
+            autocomplete="off"
+            required
+            />
+        </div>
+        <button type="submit">start</button>
+    </form>
+</body>
+<script>
+var myUUID
+var socket
+var lastFrameTime
+var activeCharacters = {}
+var pressed_keys = []
+var socket_stream = [
+	{
+		type: "make",
+	}
+]
+
+document.querySelector("#UUID").value = localStorage.getItem("UUID")
+document.querySelector("#token").value = localStorage.getItem("token")
+document.querySelector("#login").addEventListener('submit', (e) => {
+	e.preventDefault();
+	const UUID = e.target.elements.UUID.value.trim()
+	const token = e.target.elements.token.value.trim()
+	console.log(e.target.elements)
+	if (UUID && token) {
+		socket = new WebSocket(
+			`wss://quiet-inquisitive-epoch.glitch.me`,
+			[UUID, token] // Ugly hack to send auth information to the server.
+		);
+		socket.onopen = () => {
+			localStorage.setItem("UUID", UUID)
+			localStorage.setItem("token", token)
+			document.querySelector("body").innerHTML = ""
+			myUUID = UUID
+			start()
+		}
+	} else {
+		document.querySelector("body").innerHTML = "could not get your ID or token"
+	}
+});
+
+function secondsSinceLastFrame() {
+	if (lastFrameTime == 0) {
+		lastFrameTime = Date.now();
+		return 0;
+	}
+	const currentTime = lastFrameTime;
+	lastFrameTime = Date.now();
+	return (lastFrameTime - currentTime) / 1000;
+}
+
+// 10 Times a second
+// if socket_stream has something socket.emit it
+function loop() {
+	setTimeout(() => {
+		const stream_length = socket_stream.length
+		if (socket.readyState == 1 && stream_length != 0) {
+			let actions = socket_stream.slice(0, 10)
+			socket_stream.splice(0, 10)
+			console.log("actions", actions)
+
+			socket.send(JSON.stringify(actions))
+		}
+		loop(); // continue the loop
+	}, 100);
+}
+
+function start() {
+	var game = new Phaser.Game({
+		type: Phaser.AUTO,
+		width: 800,
+		height: 600,
+		scene: {
+			preload() {
+				// preload images for speed when showing a lot of sprites
+
+				// environment
+				this.load.image('background', 'assets/background.png');
+
+				// Characters
+				this.load.image('player', 'assets/player.png');
+			},
+			create() {
+				this.add.image(400, 300, 'background');
+
+				// Listen for messages
+				socket.addEventListener('message', (event) => {
+					const updates = JSON.parse(event.data)
+					console.log('updates from server ', updates);
+
+					updates.forEach(update => {
+						const data = update.data
+						switch (update.type) {
+							case "newDrone":
+								const sprite = this.add.image(data.x * 16, data.y * 16, 'player').setDisplaySize(100, 100);
+								activeCharacters[data.UUID] = {
+									ownerUUID: data.ownerUUID,
+									sprite: sprite,
+									x: data.x * 16,
+									y: data.y * 16,
+								}
+								break;
+							case "moveDrone":
+								const existingCharacter = activeCharacters[data.UUID]
+								if (!existingCharacter) return console.error("no existingCharacter to move")
+								existingCharacter.x = data.x * 16
+								existingCharacter.y = data.y * 16
+								existingCharacter.sprite.x = data.x * 16
+								existingCharacter.sprite.y = data.y * 16
+								break;
+						
+							default:
+								break;
+						}
+					});
+				});
+			},
+			// update() {
+			// 	const timeDelta = secondsSinceLastFrame()
+
+			// 	for (const id in activeCharacters) {
+			// 		const player = activeCharacters[id]
+			// 		const { gameState, obj } = player
+			// 		const offset = offsetMovingTowardPointByTimeDelta(0.2, { x: obj.x, y: obj.y }, gameState.coordinates, timeDelta);
+			// 		const newPoint = { x: obj.x + offset.x, y: obj.y + offset.y }
+			// 		if (obj.x != newPoint.x || obj.y != newPoint.y) {
+			// 			obj.x = newPoint.x
+			// 			obj.y = newPoint.y
+			// 			console.log(obj.x, obj.y, gameState.coordinates, offset)
+			// 		}
+			// 	}
+			// },
+		}
+	});
+
+	document.addEventListener('keydown', (e) => {
+		// console.log(e.code)
+		if (e.code == "KeyW") {
+			socket_stream.push({
+				type: "move",
+				data: {
+					UUID: "nothing is here",
+					x: 10,
+					y: 10,
+				},
+			})
+		}
+	});
+
+	loop()
+}
+</script>
+</html>
