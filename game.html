@@ -125,7 +125,7 @@ class Example extends Phaser.Scene {
 	}
 
 	preload() {
-		// preload images for speed when showing a lot of sprites
+		// preload images
 
 		// environment
 
@@ -197,22 +197,32 @@ class Example extends Phaser.Scene {
 		});
 
 		this.input.keyboard.on('keydown', (event) => {
+			if (event.key == " ") {
+				socket_stream.push({
+					type: "move",
+					data: {
+						UUID: activeDroneUUID,
+						x: camPos.x / 16,
+						y: camPos.y / 16,
+					},
+				})
+			}
 			keysPressed[event.key] = true
 		});
 		this.input.keyboard.on('keyup', (event) => {
 			keysPressed[event.key] = undefined
 		});
-		this.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
+		this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
 			const { worldX, worldY } = pointer
+			
+			const drone = activeCharacters[activeDroneUUID]
 			socket_stream.push({
-				type: "move",
+				type: "shoot",
 				data: {
 					UUID: activeDroneUUID,
-					x: worldX / 16,
-					y: worldY / 16,
+					rad: Math.atan2(worldY / 16 - drone.y, worldX / 16 - drone.x),
 				},
 			})
-
 		})
 		cam = this.cameras.main
 		cam.zoom = 1.5
