@@ -220,7 +220,7 @@ class Example extends Phaser.Scene {
 				type: "shoot",
 				data: {
 					UUID: activeDroneUUID,
-					rad: Math.atan2(worldY / 16 - drone.y, worldX / 16 - drone.x),
+					rad: Math.atan2(worldY / 16 - drone.y / 16, worldX / 16 - drone.x / 16),
 				},
 			})
 		})
