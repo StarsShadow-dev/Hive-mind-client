@@ -83,6 +83,7 @@ document.querySelector("#login").addEventListener('submit', (e) => {
 	}
 });
 
+// get the distance between point1 and point2
 function getDistance(point1, point2) {
 	return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
 }
@@ -97,6 +98,7 @@ function secondsSinceLastFrame() {
 	return (lastFrameTime - currentTime) / 1000;
 }
 
+// Work in progress function to smooth out unpredictability in the netwerk
 function smooth(DeltaTime, sprite, x, y) {
 	const distance = getDistance(
 		{ x: sprite.x, y: sprite.y }, 
@@ -232,9 +234,11 @@ class Example extends Phaser.Scene {
 		setTimeout(() => { this.loop() }, 100); // continue the loop
 	}
 
+	// this runs every frame
 	update() {
 		const DeltaTime = secondsSinceLastFrame()
 
+		// Smooth movement for projectiles and characters
 		for (const key in projectiles) {
 			const pro = projectiles[key];
 			smooth(DeltaTime, pro.sprite, pro.x, pro.y)
@@ -245,6 +249,7 @@ class Example extends Phaser.Scene {
 			smooth(DeltaTime, character.sprite, character.x, character.y)
 		}
 		
+		// Control over the camera
 		const u = keysPressed["w"]
 		const d = keysPressed["s"]
 		const l = keysPressed["a"]
@@ -271,6 +276,7 @@ class Example extends Phaser.Scene {
 	}
 }
 
+// Start the game when you press the start button
 function start() {
 
 	var game = new Phaser.Game({
