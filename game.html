@@ -65,19 +65,13 @@ document.querySelector("#login").addEventListener('submit', (e) => {
 	e.preventDefault();
 	const UUID = e.target.elements.UUID.value.trim()
 	const token = e.target.elements.token.value.trim()
-	console.log(e.target.elements)
+	
 	if (UUID && token) {
-		socket = new WebSocket(
-			`wss://quiet-inquisitive-epoch.glitch.me`,
-			[UUID, token] // Ugly hack to send auth information to the server.
-		);
-		socket.onopen = () => {
-			localStorage.setItem("UUID", UUID)
-			localStorage.setItem("token", token)
-			document.querySelector("body").innerHTML = `<p id="camdata"></p>`
-			myUUID = UUID
-			start()
-		}
+		localStorage.setItem("UUID", UUID)
+		localStorage.setItem("token", token)
+		myUUID = localStorage.getItem("UUID")
+		document.querySelector("body").innerHTML = `<p id="camdata"></p>`
+		start()
 	} else {
 		document.querySelector("body").innerHTML = "could not get your ID or token"
 	}
@@ -143,8 +137,13 @@ class Example extends Phaser.Scene {
 		this.add.image(16, 0, 'na', 0);
 		this.add.image(16, 16, 'na', 0);
 
+		this.socket = new WebSocket(
+			`wss://quiet-inquisitive-epoch.glitch.me`,
+			[myUUID, localStorage.getItem("token")] // Ugly hack to send auth information to the server.
+		);
+
 		// Listen for messages
-		socket.addEventListener('message', (event) => {
+		this.socket.addEventListener('message', (event) => {
 			const updates = JSON.parse(event.data)
 			console.log('updates from server ', updates);
 
@@ -234,12 +233,12 @@ class Example extends Phaser.Scene {
 	loop() {
 		const stream_length = socket_stream.length
 
-		if (stream_length != 0) {
+		if (this.socket.readyState == 1 && stream_length != 0) {
 			let actions = socket_stream.slice(0, 10)
 			socket_stream.splice(0, 10)
 			console.log("actions", actions)
 
-			socket.send(JSON.stringify(actions))
+			this.socket.send(JSON.stringify(actions))
 		}
 		setTimeout(() => { this.loop() }, 100); // continue the loop
 	}
@@ -289,11 +288,13 @@ class Example extends Phaser.Scene {
 // Start the game when you press the start button
 function start() {
 
+	var scene = new Example()
+
 	var game = new Phaser.Game({
 		type: Phaser.AUTO,
 		width: 800,
 		height: 600,
-		scene: [ Example ]
+		scene: [ scene ]
 	});
 }
 </script>
