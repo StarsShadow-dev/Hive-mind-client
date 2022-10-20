@@ -39,7 +39,7 @@
 </body>
 <script>
 var myUUID
-var activeDroneUUID
+var activeDroneUUIDs = []
 var socket
 var lastFrameTime
 var cam
@@ -127,15 +127,16 @@ class Example extends Phaser.Scene {
 		this.load.image('player', 'assets/player.png');
 		this.load.image('projectile', 'assets/projectile.png');
 
-		this.load.spritesheet('na', 'assets/NodeAtlas.png', { frameWidth: 16, frameHeight: 16 });
+		// nodes
+		this.load.image('copper-wall', 'assets/copper-wall.png');
 	}
 
 	create() {
-		this.add.image(0, 0, 'na', 0);
-		this.add.image(0, 16, 'na', 0);
+		this.add.image(0, 0, 'copper-wall');
+		this.add.image(0, 32, 'copper-wall');
 
-		this.add.image(16, 0, 'na', 0);
-		this.add.image(16, 16, 'na', 0);
+		this.add.image(32, 0, 'copper-wall');
+		this.add.image(32, 32, 'copper-wall');
 
 		this.socket = new WebSocket(
 			`wss://quiet-inquisitive-epoch.glitch.me`,
@@ -151,34 +152,34 @@ class Example extends Phaser.Scene {
 				const data = update.data
 				switch (update.type) {
 					case "newDrone":
-						const sprite = this.add.image(data.x * 16, data.y * 16, 'player')//.setDisplaySize(100, 100);
+						const sprite = this.add.image(data.x * 32, data.y * 32, 'player')//.setDisplaySize(100, 100);
 						activeCharacters[data.UUID] = {
 							ownerUUID: data.ownerUUID,
 							sprite: sprite,
-							x: data.x * 16,
-							y: data.y * 16,
+							x: data.x * 32,
+							y: data.y * 32,
 						}
 						if (data.ownerUUID == myUUID) {
-							activeDroneUUID = data.UUID
+							activeDroneUUIDs.push(data.UUID)
 						}
 						break;
 					case "moveDrone":
 						const existingCharacter = activeCharacters[data.UUID]
 						if (!existingCharacter) return console.error("no existingCharacter to move")
-						existingCharacter.x = data.x * 16
-						existingCharacter.y = data.y * 16
+						existingCharacter.x = data.x * 32
+						existingCharacter.y = data.y * 32
 						break;
 					case "pro":
 						const projectile = projectiles[data.id]
 						if (projectile) {
-							projectile.x = data.x * 16
-							projectile.y = data.y * 16
+							projectile.x = data.x * 32
+							projectile.y = data.y * 32
 						} else {
-							const sprite = this.add.image(data.x * 16, data.y * 16, 'projectile')
+							const sprite = this.add.image(data.x * 32, data.y * 32, 'projectile')
 							projectiles[data.id] = {
 								sprite: sprite,
-								x: data.x * 16,
-								y: data.y * 16,
+								x: data.x * 32,
+								y: data.y * 32,
 							}
 						}
 						break;
@@ -200,9 +201,9 @@ class Example extends Phaser.Scene {
 				socket_stream.push({
 					type: "move",
 					data: {
-						UUID: activeDroneUUID,
-						x: camPos.x / 16,
-						y: camPos.y / 16,
+						UUID: activeDroneUUIDs[0],
+						x: camPos.x / 32,
+						y: camPos.y / 32,
 					},
 				})
 			}
@@ -214,14 +215,16 @@ class Example extends Phaser.Scene {
 		this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
 			const { worldX, worldY } = pointer
 			
-			const drone = activeCharacters[activeDroneUUID]
-			socket_stream.push({
-				type: "shoot",
-				data: {
-					UUID: activeDroneUUID,
-					rad: Math.atan2(worldY / 16 - drone.y / 16, worldX / 16 - drone.x / 16),
-				},
-			})
+			for (let i = 0; i < activeDroneUUIDs.length; i++) {
+				const drone = activeCharacters[activeDroneUUIDs[i]]
+				socket_stream.push({
+					type: "shoot",
+					data: {
+						UUID: activeDroneUUIDs[i],
+						rad: Math.atan2(worldY / 32 - drone.y / 32, worldX / 32 - drone.x / 32),
+					},
+				})
+			}
 		})
 		cam = this.cameras.main
 		cam.zoom = 1.5
