@@ -54,26 +54,31 @@ var camPos = {
 
 var pressed_keys = []
 var socket_stream = [
-	{
-		type: "make",
-	}
+	// {
+	// 	type: "makeDrone",
+	// }
 ]
 
+// I wasted so much time typing in my UUID and token Before I added this
 document.querySelector("#UUID").value = localStorage.getItem("UUID")
 document.querySelector("#token").value = localStorage.getItem("token")
+
+// start the game
 document.querySelector("#login").addEventListener('submit', (e) => {
-	e.preventDefault();
+	e.preventDefault(); // forms usually reload the webpage
 	const UUID = e.target.elements.UUID.value.trim()
 	const token = e.target.elements.token.value.trim()
 	
 	if (UUID && token) {
+		// store UUID and token for later
 		localStorage.setItem("UUID", UUID)
 		localStorage.setItem("token", token)
+
 		myUUID = localStorage.getItem("UUID")
 		document.querySelector("body").innerHTML = `<p id="camdata"></p>`
 		start()
 	} else {
-		document.querySelector("body").innerHTML = "could not get your ID or token"
+		document.querySelector("body").innerHTML = "could not get your UUID or token"
 	}
 });
 
@@ -82,6 +87,7 @@ function getDistance(point1, point2) {
 	return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
 }
 
+// for getting the delta time in a loop
 function secondsSinceLastFrame() {
 	if (lastFrameTime == 0) {
 		lastFrameTime = Date.now();
@@ -92,8 +98,10 @@ function secondsSinceLastFrame() {
 	return (lastFrameTime - currentTime) / 1000;
 }
 
-// Work in progress function to smooth out unpredictability in the netwerk
+// Work in progress function to smooth out unpredictability and lag in the netwerk
 function smooth(DeltaTime, sprite, x, y) {
+	x = x * 32
+	y = y * 32
 	const distance = getDistance(
 		{ x: sprite.x, y: sprite.y }, 
 		{ x: x, y: y }
@@ -138,54 +146,58 @@ class Example extends Phaser.Scene {
 		this.add.image(32, 0, 'copper-wall');
 		this.add.image(32, 32, 'copper-wall');
 
+		// create a web socket at wss://quiet-inquisitive-epoch.glitch.me
 		this.socket = new WebSocket(
 			`wss://quiet-inquisitive-epoch.glitch.me`,
-			[myUUID, localStorage.getItem("token")] // Ugly hack to send auth information to the server.
+			[myUUID, localStorage.getItem("token"), "1.0.0"] // Ugly hack to send auth information and version to the server.
 		);
 
 		// Listen for messages
 		this.socket.addEventListener('message', (event) => {
 			const updates = JSON.parse(event.data)
-			console.log('updates from server ', updates);
+			// uncomment the line below to log all updates from the server
+			// console.log('updates from server ', updates);
 
 			updates.forEach(update => {
 				const data = update.data
 				switch (update.type) {
-					case "newDrone":
-						const sprite = this.add.image(data.x * 32, data.y * 32, 'player')//.setDisplaySize(100, 100);
-						activeCharacters[data.UUID] = {
-							ownerUUID: data.ownerUUID,
-							sprite: sprite,
-							x: data.x * 32,
-							y: data.y * 32,
-						}
-						if (data.ownerUUID == myUUID) {
-							activeDroneUUIDs.push(data.UUID)
-						}
-						break;
-					case "moveDrone":
+					case "drone": // information about a drone
 						const existingCharacter = activeCharacters[data.UUID]
-						if (!existingCharacter) return console.error("no existingCharacter to move")
-						existingCharacter.x = data.x * 32
-						existingCharacter.y = data.y * 32
+						if (existingCharacter) {
+							existingCharacter.gameState = data
+						} else {
+							const sprite = this.add.image(data.x * 32, data.y * 32, 'player')//.setDisplaySize(100, 100);
+							activeCharacters[data.UUID] = {
+								ownerUUID: data.ownerUUID,
+								sprite: sprite,
+								gameState: data,
+							}
+							if (data.ownerUUID == myUUID) {
+								activeDroneUUIDs.push(data.UUID)
+							}
+						}
 						break;
-					case "pro":
+					case "noDrone": // drone no longer exists TODO: have the server give more information about why the drone is gone
+						const droneToRm = activeCharacters[data.UUID]
+						if (!droneToRm) return console.error("no droneToRm?", update)
+						droneToRm.sprite.destroy()
+						delete activeCharacters[data.UUID]
+						break;
+					case "pro": // a projectile exists
 						const projectile = projectiles[data.id]
 						if (projectile) {
-							projectile.x = data.x * 32
-							projectile.y = data.y * 32
+							projectile.gameState = data
 						} else {
 							const sprite = this.add.image(data.x * 32, data.y * 32, 'projectile')
 							projectiles[data.id] = {
 								sprite: sprite,
-								x: data.x * 32,
-								y: data.y * 32,
+								gameState: data,
 							}
 						}
 						break;
-					case "noPro":
+					case "noPro": // a projectile no longer exists
 						const proToRm = projectiles[data.id]
-						if (!proToRm) return console.log("no proToRm?")
+						if (!proToRm) return console.error("no proToRm?", update)
 						proToRm.sprite.destroy()
 						delete projectiles[data.id]
 						break;
@@ -201,7 +213,7 @@ class Example extends Phaser.Scene {
 				socket_stream.push({
 					type: "move",
 					data: {
-						UUID: activeDroneUUIDs[0],
+						DUUID: activeDroneUUIDs[0],
 						x: camPos.x / 32,
 						y: camPos.y / 32,
 					},
@@ -220,8 +232,21 @@ class Example extends Phaser.Scene {
 				socket_stream.push({
 					type: "shoot",
 					data: {
-						UUID: activeDroneUUIDs[i],
-						rad: Math.atan2(worldY / 32 - drone.y / 32, worldX / 32 - drone.x / 32),
+						DUUID: activeDroneUUIDs[i],
+						rad: Math.atan2(worldY / 32 - drone.gameState.y, worldX / 32 - drone.gameState.x),
+					},
+				})
+			}
+		})
+		this.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
+			const { worldX, worldY } = pointer
+			
+			for (let i = 0; i < activeDroneUUIDs.length; i++) {
+				const drone = activeCharacters[activeDroneUUIDs[i]]
+				socket_stream.push({
+					type: "shoot",
+					data: {
+						DUUID: activeDroneUUIDs[i],
 					},
 				})
 			}
@@ -234,9 +259,7 @@ class Example extends Phaser.Scene {
 	// 10 Times a second
 	// if socket_stream has something socket.emit it
 	loop() {
-		const stream_length = socket_stream.length
-
-		if (this.socket.readyState == 1 && stream_length != 0) {
+		if (this.socket.readyState == 1 && socket_stream.length != 0) {
 			let actions = socket_stream.slice(0, 10)
 			socket_stream.splice(0, 10)
 			console.log("actions", actions)
@@ -253,22 +276,22 @@ class Example extends Phaser.Scene {
 		// Smooth movement for projectiles and characters
 		for (const key in projectiles) {
 			const pro = projectiles[key];
-			smooth(DeltaTime, pro.sprite, pro.x, pro.y)
+			smooth(DeltaTime, pro.sprite, pro.gameState.x, pro.gameState.y)
 		}
-
 		for (const key in activeCharacters) {
 			const character = activeCharacters[key];
-			smooth(DeltaTime, character.sprite, character.x, character.y)
+			smooth(DeltaTime, character.sprite, character.gameState.x, character.gameState.y)
 		}
 		
 		// Control over the camera
-		const u = keysPressed["w"]
-		const d = keysPressed["s"]
-		const l = keysPressed["a"]
-		const r = keysPressed["d"]
+		const u = keysPressed["w"] // up
+		const d = keysPressed["s"] // down
+		const l = keysPressed["a"] // left
+		const r = keysPressed["d"] // right
 
 		// if a control
 		if (u || d || l || r) {
+			// do nothing for opposite controls
 			if (u && d && l && r) {
 				return
 			} else if (u && d && !l && !r) {
@@ -276,6 +299,7 @@ class Example extends Phaser.Scene {
 			} else if (!u && !d && l && r) {
 				return
 			}
+			// update camera
 			if (u) camPos.y -= 5
 			if (d) camPos.y += 5
 			if (l) camPos.x -= 5
@@ -288,7 +312,7 @@ class Example extends Phaser.Scene {
 	}
 }
 
-// Start the game when you press the start button
+// start the game
 function start() {
 
 	var scene = new Example()
