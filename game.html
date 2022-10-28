@@ -24,12 +24,12 @@
             />
         </div>
         <div class="form-control">
-            <label for="token">token</label>
+            <label for="pass">pass</label>
             <input
             type="text"
-            name="token"
-            id="token"
-            placeholder="Enter token"
+            name="pass"
+            id="pass"
+            placeholder="Enter 1 time pass"
             autocomplete="off"
             required
             />
@@ -38,6 +38,7 @@
     </form>
 </body>
 <script>
+var pass
 var myUUID
 var activeDroneUUIDs = []
 var socket
@@ -59,26 +60,25 @@ var socket_stream = [
 	// }
 ]
 
-// I wasted so much time typing in my UUID and token Before I added this
+// I wasted so much time typing in my UUID Before I added this
 document.querySelector("#UUID").value = localStorage.getItem("UUID")
-document.querySelector("#token").value = localStorage.getItem("token")
+document.querySelector("#pass").value = localStorage.getItem("pass")
 
 // start the game
 document.querySelector("#login").addEventListener('submit', (e) => {
 	e.preventDefault(); // forms usually reload the webpage
 	const UUID = e.target.elements.UUID.value.trim()
-	const token = e.target.elements.token.value.trim()
+	pass = e.target.elements.pass.value.trim()
 	
-	if (UUID && token) {
-		// store UUID and token for later
+	if (UUID && pass) {
+		// store UUID for later
 		localStorage.setItem("UUID", UUID)
-		localStorage.setItem("token", token)
 
 		myUUID = localStorage.getItem("UUID")
 		document.querySelector("body").innerHTML = `<p id="camdata"></p>`
 		start()
 	} else {
-		document.querySelector("body").innerHTML = "could not get your UUID or token"
+		document.querySelector("body").innerHTML = "could not get your UUID or pass"
 	}
 });
 
@@ -98,27 +98,30 @@ function secondsSinceLastFrame() {
 	return (lastFrameTime - currentTime) / 1000;
 }
 
-// Work in progress function to smooth out unpredictability and lag in the netwerk
-function smooth(DeltaTime, sprite, x, y) {
-	x = x * 32
-	y = y * 32
+// -work in progress- function to smooth out unpredictability and lag in the netwerk
+function smooth(DeltaTime, sprite, speed, x, y) {
 	const distance = getDistance(
 		{ x: sprite.x, y: sprite.y }, 
 		{ x: x, y: y }
 	)
-	if (distance > 3) {
-		let distanceToTravel = DeltaTime + 3;
-		const angle = Math.atan2(y - sprite.y, x - sprite.x);
+	let distanceToTravel = DeltaTime + distance / 10;
+	const angle = Math.atan2(y - sprite.y, x - sprite.x);
 
-		sprite.x += distanceToTravel * Math.cos(angle)
-		sprite.y += distanceToTravel * Math.sin(angle)
-	} else if (distance <= 3) {
-		let distanceToTravel = DeltaTime + distance / 10;
-		const angle = Math.atan2(y - sprite.y, x - sprite.x);
+	sprite.x += distanceToTravel * Math.cos(angle)
+	sprite.y += distanceToTravel * Math.sin(angle)
+	// if (distance > speed) {
+	// 	let distanceToTravel = DeltaTime + speed;
+	// 	const angle = Math.atan2(y - sprite.y, x - sprite.x);
 
-		sprite.x += distanceToTravel * Math.cos(angle)
-		sprite.y += distanceToTravel * Math.sin(angle)
-	}
+	// 	sprite.x += distanceToTravel * Math.cos(angle)
+	// 	sprite.y += distanceToTravel * Math.sin(angle)
+	// } else if (distance <= speed) { // at the end of the movement will be more precise but may cause other issues
+	// 	let distanceToTravel = DeltaTime + distance / 10;
+	// 	const angle = Math.atan2(y - sprite.y, x - sprite.x);
+
+	// 	sprite.x += distanceToTravel * Math.cos(angle)
+	// 	sprite.y += distanceToTravel * Math.sin(angle)
+	// }
 }
 
 class Example extends Phaser.Scene {
@@ -146,17 +149,17 @@ class Example extends Phaser.Scene {
 		this.add.image(32, 0, 'copper-wall');
 		this.add.image(32, 32, 'copper-wall');
 
-		// create a web socket at wss://quiet-inquisitive-epoch.glitch.me
+		// create a web socket
 		this.socket = new WebSocket(
-			`wss://quiet-inquisitive-epoch.glitch.me`,
-			[myUUID, localStorage.getItem("token"), "1.0.0"] // Ugly hack to send auth information and version to the server.
+			`ws://localhost:3000`,
+			[myUUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
 		);
 
 		// Listen for messages
 		this.socket.addEventListener('message', (event) => {
 			const updates = JSON.parse(event.data)
 			// uncomment the line below to log all updates from the server
-			// console.log('updates from server ', updates);
+			console.log('updates from server ', updates);
 
 			updates.forEach(update => {
 				const data = update.data
@@ -201,7 +204,7 @@ class Example extends Phaser.Scene {
 						proToRm.sprite.destroy()
 						delete projectiles[data.id]
 						break;
-				
+						// TODO: add a chat
 					default:
 						break;
 				}
@@ -210,6 +213,7 @@ class Example extends Phaser.Scene {
 
 		this.input.keyboard.on('keydown', (event) => {
 			if (event.key == " ") {
+				if (!activeDroneUUIDs[0]) return
 				socket_stream.push({
 					type: "move",
 					data: {
@@ -276,11 +280,11 @@ class Example extends Phaser.Scene {
 		// Smooth movement for projectiles and characters
 		for (const key in projectiles) {
 			const pro = projectiles[key];
-			smooth(DeltaTime, pro.sprite, pro.gameState.x, pro.gameState.y)
+			smooth(DeltaTime, pro.sprite, pro.gameState.speed * 32, pro.gameState.x * 32, pro.gameState.y * 32)
 		}
 		for (const key in activeCharacters) {
 			const character = activeCharacters[key];
-			smooth(DeltaTime, character.sprite, character.gameState.x, character.gameState.y)
+			smooth(DeltaTime, character.sprite, character.gameState.speed * 32, character.gameState.x * 32, character.gameState.y * 32)
 		}
 		
 		// Control over the camera

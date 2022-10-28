@@ -2,6 +2,8 @@
 
 ### Work in progress example client for my game
 
+- I do not have a non-localhost server set up right now
+
 - player.png is a placeholder until I make a player image.
 
 to run on macOS type `python3 -m http.server 8000` in to the terminal.
@@ -13,19 +15,19 @@ Please tell me if some thing in here requires clarification.
 Start by creating a web socket
 ```js
 const socket = new WebSocket(
-    "wss://quiet-inquisitive-epoch.glitch.me",
-    // include UUID, token and version in the protocols object
-    [UUID, token, "1.0.0"]
+    "wss://",
+    // include UUID, pass and version in the protocols object
+    [UUID, pass, "1.0.1"]
 );
 ```
-If UUID, token or version are invalid the web socket will be **terminated immediately**.
+If UUID, pass or version are invalid the web socket will be **terminated immediately**.
 
 ## Receiving updates
 
 To receive information from the web socket use:
 ```js
 socket.addEventListener('message', (event) => {
-    // Your amazing code
+    // Your amazing code goes here
 });
 ```
 
@@ -57,10 +59,11 @@ List of update types:
 
 * `drone` a drone exists
     * usually contains:
-    * `ownerUUID` UUID of the drones owner
     * `UUID` UUID of the drone
     * `x` drones x coordinate
     * `y` drones y coordinate
+    * also contains when drone is created:
+    * `ownerUUID` UUID of the drones owner
 * `noDrone` a drone no longer exists 
     * `UUID` UUID of the drone that is gone
     * TODO add information describing why the drone is gone
@@ -74,14 +77,14 @@ List of update types:
     * `senderUUID` UUID of the sender
     * `name` name of the sender
     * `msg` message (as a string) from the sender
-    * ### msg Is unsterilized and may contain malware from the sender ***never* inject into the HTML tree**
+    * ### msg Is unsterilized and may contain malicious code from the sender ***never* inject into the HTML tree**
 
 #### A basic implementation is:
 
 ```js
 const socket = new WebSocket(
-    "wss://quiet-inquisitive-epoch.glitch.me",
-    [localStorage.getItem("UUID"), localStorage.getItem("token"), "1.0.0"]
+    "wss://",
+    ["my UUID", "1234", "1.0.1"]
 );
 socket.addEventListener('message', (event) => {
     const updates = JSON.parse(event.data)
@@ -104,6 +107,8 @@ socket.addEventListener('message', (event) => {
                 break;
             case "noPro":
                 // remove the projectile
+            case "chat":
+                // display a chat message
                 break;
         
             default:
