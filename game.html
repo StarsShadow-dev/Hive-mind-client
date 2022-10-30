@@ -8,6 +8,39 @@
 			position: absolute;
 			color: white;
 		}
+
+		#chat_container {
+			position: absolute;
+		}
+
+		#chat_messages {
+			resize: vertical;
+			height: 100px;
+			overflow: scroll;
+			border: 1px solid black;
+			width: 300px;
+		}
+
+		#chat_form {
+			position: absolute;
+		}
+
+		.message {
+			background-color: aqua;
+			border: 1px solid gray;
+		}
+
+		.message:hover {
+			background-color: #c6cade;
+		}
+
+		.message p .username {
+			color: white;
+		}
+
+		.message p .msg {
+			color: white;
+		}
 	</style>
 </head>
 <body>
@@ -60,9 +93,10 @@ var socket_stream = [
 	// }
 ]
 
+let chat_messages
+
 // I wasted so much time typing in my UUID Before I added this
 document.querySelector("#UUID").value = localStorage.getItem("UUID")
-document.querySelector("#pass").value = localStorage.getItem("pass")
 
 // start the game
 document.querySelector("#login").addEventListener('submit', (e) => {
@@ -75,7 +109,25 @@ document.querySelector("#login").addEventListener('submit', (e) => {
 		localStorage.setItem("UUID", UUID)
 
 		myUUID = localStorage.getItem("UUID")
-		document.querySelector("body").innerHTML = `<p id="camdata"></p>`
+		document.querySelector("body").innerHTML = `
+		<p id="camdata"></p>
+		<div id="chat_container">
+			<div id="chat_messages"></div>
+			<div id="chat_form">
+				<form id="chat-form">
+				<input
+					id="msg"
+					type="text"
+					placeholder="Type a Message"
+					autocomplete="off"
+					required
+				/>
+				<button id="message-submit">send</button>
+				</form>
+			</div>
+		</div>
+		`
+		chat_messages = document.querySelector("#chat_messages")
 		start()
 	} else {
 		document.querySelector("body").innerHTML = "could not get your UUID or pass"
@@ -122,6 +174,33 @@ function smooth(DeltaTime, sprite, speed, x, y) {
 	// 	sprite.x += distanceToTravel * Math.cos(angle)
 	// 	sprite.y += distanceToTravel * Math.sin(angle)
 	// }
+}
+
+function outputMessage(name, msg) {
+	let movedown = false
+	if (chat_messages.clientHeight + chat_messages.scrollTop >= chat_messages.scrollHeight) {
+		movedown = true
+	}
+	const div = document.createElement('div');
+	div.classList.add('message');
+	div.ondblclick
+	// div.oncontextmenu = (e) => {
+	// 	e.preventDefault()
+	// 	e.srcElement
+	// 	console.log(e)
+	// }
+	const p = document.createElement('p');
+	p.classList.add('username');
+	p.innerText = name
+	div.appendChild(p);
+	const para = document.createElement('p');
+	para.classList.add('msg');
+	para.innerText = msg;
+	div.appendChild(para);
+	chat_messages.append(div);
+	if (movedown) {
+		chat_messages.scrollTop = chat_messages.scrollHeight; // Scroll down
+	}
 }
 
 class Example extends Phaser.Scene {
@@ -205,10 +284,30 @@ class Example extends Phaser.Scene {
 						delete projectiles[data.id]
 						break;
 						// TODO: add a chat
+					case "chat":
+						outputMessage(data.name, data.msg)
 					default:
 						break;
 				}
 			});
+		});
+
+		document.querySelector("#chat-form").addEventListener('submit', (e) => {
+			e.preventDefault();
+			// Get message text
+			let msg = e.target.elements.msg.value.trim()
+			if (!msg) {
+				return false;
+			}
+
+			socket_stream.push({
+				type: "chat",
+				msg: msg,
+			})
+			// Clear input
+			e.target.elements.msg.value = '';
+
+			e.target.elements.msg.focus();
 		});
 
 		this.input.keyboard.on('keydown', (event) => {
