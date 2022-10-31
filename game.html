@@ -15,7 +15,7 @@
 
 		#chat_messages {
 			resize: vertical;
-			height: 100px;
+			height: 10px;
 			overflow: scroll;
 			border: 1px solid black;
 			width: 300px;
@@ -26,12 +26,13 @@
 		}
 
 		.message {
-			background-color: aqua;
+			background-color: gray;
 			border: 1px solid gray;
+			height: 50px;
 		}
 
 		.message:hover {
-			background-color: #c6cade;
+			background-color: rgb(150, 148, 148);
 		}
 
 		.message p .username {
@@ -189,14 +190,17 @@ function outputMessage(name, msg) {
 	// 	e.srcElement
 	// 	console.log(e)
 	// }
+
 	const p = document.createElement('p');
 	p.classList.add('username');
-	p.innerText = name
+	p.innerText = name + "  " + msg
 	div.appendChild(p);
-	const para = document.createElement('p');
-	para.classList.add('msg');
-	para.innerText = msg;
-	div.appendChild(para);
+
+	// const para = document.createElement('p');
+	// para.classList.add('msg');
+	// para.innerText = msg;
+	// div.appendChild(para);
+
 	chat_messages.append(div);
 	if (movedown) {
 		chat_messages.scrollTop = chat_messages.scrollHeight; // Scroll down
@@ -321,6 +325,9 @@ class Example extends Phaser.Scene {
 						y: camPos.y / 32,
 					},
 				})
+			} else if (event.key == "Escape") {
+				// unfocus the current element
+				document.activeElement.blur()
 			}
 			keysPressed[event.key] = true
 		});
@@ -385,6 +392,9 @@ class Example extends Phaser.Scene {
 			const character = activeCharacters[key];
 			smooth(DeltaTime, character.sprite, character.gameState.speed * 32, character.gameState.x * 32, character.gameState.y * 32)
 		}
+
+		// trying to stop the camera from moving around while you type in the chat
+		if (document.activeElement.id == "msg") return
 		
 		// Control over the camera
 		const u = keysPressed["w"] // up
