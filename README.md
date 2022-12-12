@@ -6,7 +6,9 @@
 
 - player.png is a placeholder until I make a player image.
 
-to run on macOS type `python3 -m http.server 8000` in to the terminal.
+To run on macOS type `python3 -m http.server 8000` in to the terminal.
+
+Go to `http://localhost:8000/game.html` in your web browser.
 
 Please tell me if some thing in here requires clarification.
 
