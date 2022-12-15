@@ -12,7 +12,7 @@ Go to `http://localhost:8000/game.html` in your web browser.
 
 Please tell me if some thing in here requires clarification.
 
-# Client server API
+# Low level client server API
 
 Start by creating a web socket
 ```js

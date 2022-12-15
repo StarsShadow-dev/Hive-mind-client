@@ -72,6 +72,9 @@
     </form>
 </body>
 <script>
+
+const pixelsPerMeter = 32
+
 var pass
 var myUUID
 var activeDroneUUIDs = []
@@ -228,10 +231,10 @@ class Example extends Phaser.Scene {
 
 	create() {
 		this.add.image(0, 0, 'copper-wall');
-		this.add.image(0, 32, 'copper-wall');
+		this.add.image(0, pixelsPerMeter, 'copper-wall');
 
-		this.add.image(32, 0, 'copper-wall');
-		this.add.image(32, 32, 'copper-wall');
+		this.add.image(pixelsPerMeter, 0, 'copper-wall');
+		this.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
 
 		// create a web socket
 		this.socket = new WebSocket(
@@ -243,7 +246,7 @@ class Example extends Phaser.Scene {
 		this.socket.addEventListener('message', (event) => {
 			const updates = JSON.parse(event.data)
 			// uncomment the line below to log all updates from the server
-			// console.log('updates from server ', updates);
+			console.log('updates from server ', updates);
 
 			updates.forEach(update => {
 				const data = update.data
@@ -253,7 +256,8 @@ class Example extends Phaser.Scene {
 						if (existingCharacter) {
 							existingCharacter.gameState = data
 						} else {
-							const sprite = this.add.image(data.x * 32, data.y * 32, 'player')//.setDisplaySize(100, 100);
+							console.log(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player')
+							const sprite = this.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player').setDisplaySize(pixelsPerMeter, pixelsPerMeter);
 							activeCharacters[data.UUID] = {
 								ownerUUID: data.ownerUUID,
 								sprite: sprite,
@@ -275,7 +279,7 @@ class Example extends Phaser.Scene {
 						if (projectile) {
 							projectile.gameState = data
 						} else {
-							const sprite = this.add.image(data.x * 32, data.y * 32, 'projectile')
+							const sprite = this.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'projectile')
 							projectiles[data.id] = {
 								sprite: sprite,
 								gameState: data,
@@ -322,8 +326,8 @@ class Example extends Phaser.Scene {
 					type: "move",
 					data: {
 						DUUID: activeDroneUUIDs[0],
-						x: camPos.x / 32,
-						y: camPos.y / 32,
+						x: camPos.x / pixelsPerMeter,
+						y: camPos.y / pixelsPerMeter,
 					},
 				})
 			} else if (event.key == "Escape") {
@@ -336,25 +340,33 @@ class Example extends Phaser.Scene {
 			keysPressed[event.key] = undefined
 		});
 		let firingInterval
+		let lastFireX = 0
+		let lastFireY = 0
 		this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
-			firingInterval = setInterval(() => {
-				console.log(this.input.x, this.input.y, pointer.worldX, pointer.worldY)
-				for (let i = 0; i < activeDroneUUIDs.length; i++) {
-					const drone = activeCharacters[activeDroneUUIDs[i]]
-					socket_stream.push({
-						type: "shoot",
-						data: {
-							DUUID: activeDroneUUIDs[i],
-							rad: Math.atan2(pointer.worldY / 32 - drone.gameState.y, pointer.worldX / 32 - drone.gameState.x),
-						},
-					})
-				}
-			}, 1000)
+			if (firingInterval == undefined) {
+				firingInterval = setInterval(() => {
+					if (getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY,}) > pixelsPerMeter) {
+						for (let i = 0; i < activeDroneUUIDs.length; i++) {
+							const drone = activeCharacters[activeDroneUUIDs[i]]
+							socket_stream.push({
+								type: "shoot",
+								data: {
+									DUUID: activeDroneUUIDs[i],
+									rad: Math.atan2(pointer.worldY / pixelsPerMeter - drone.gameState.y, pointer.worldX / pixelsPerMeter - drone.gameState.x),
+								},
+							})
+						}
+						lastFireX = pointer.worldX
+						lastFireY = pointer.worldY
+					}
+				}, 1000)
+			}
 		})
 		this.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
 			const { worldX, worldY } = pointer
 
 			clearInterval(firingInterval)
+			firingInterval = undefined
 			
 			for (let i = 0; i < activeDroneUUIDs.length; i++) {
 				const drone = activeCharacters[activeDroneUUIDs[i]]
@@ -391,11 +403,11 @@ class Example extends Phaser.Scene {
 		// Smooth movement for projectiles and characters
 		for (const key in projectiles) {
 			const pro = projectiles[key];
-			smooth(DeltaTime, pro.sprite, pro.gameState.speed * 32, pro.gameState.x * 32, pro.gameState.y * 32)
+			smooth(DeltaTime, pro.sprite, pro.gameState.speed * pixelsPerMeter, pro.gameState.x * pixelsPerMeter, pro.gameState.y * pixelsPerMeter)
 		}
 		for (const key in activeCharacters) {
 			const character = activeCharacters[key];
-			smooth(DeltaTime, character.sprite, character.gameState.speed * 32, character.gameState.x * 32, character.gameState.y * 32)
+			smooth(DeltaTime, character.sprite, character.gameState.speed * pixelsPerMeter, character.gameState.x * pixelsPerMeter, character.gameState.y * pixelsPerMeter)
 		}
 
 		// trying to stop the camera from moving around while you type in the chat
