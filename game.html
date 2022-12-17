@@ -157,15 +157,15 @@ function secondsSinceLastFrame() {
 
 // -work in progress- function to smooth out unpredictability and lag in the netwerk
 function smooth(DeltaTime, sprite, speed, x, y) {
-	const distance = getDistance(
-		{ x: sprite.x, y: sprite.y }, 
-		{ x: x, y: y }
-	)
-	let distanceToTravel = DeltaTime + distance / 10;
-	const angle = Math.atan2(y - sprite.y, x - sprite.x);
+	// const distance = getDistance(
+	// 	{ x: sprite.x, y: sprite.y }, 
+	// 	{ x: x, y: y }
+	// )
+	// let distanceToTravel = DeltaTime + distance / 10;
+	// const angle = Math.atan2(y - sprite.y, x - sprite.x);
 
-	sprite.x += distanceToTravel * Math.cos(angle)
-	sprite.y += distanceToTravel * Math.sin(angle)
+	sprite.x = lerp(sprite.x, x, 0.1)
+	sprite.y = lerp(sprite.y, y, 0.1)
 	// if (distance > speed) {
 	// 	let distanceToTravel = DeltaTime + speed;
 	// 	const angle = Math.atan2(y - sprite.y, x - sprite.x);
@@ -179,6 +179,10 @@ function smooth(DeltaTime, sprite, speed, x, y) {
 	// 	sprite.x += distanceToTravel * Math.cos(angle)
 	// 	sprite.y += distanceToTravel * Math.sin(angle)
 	// }
+}
+
+function lerp(start, end, amt) {
+	return (1 - amt) * start + amt * end;
 }
 
 function outputMessage(name, msg) {
@@ -241,6 +245,10 @@ class Example extends Phaser.Scene {
 			`ws://localhost:3000`,
 			[myUUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
 		);
+
+		this.socket.onclose = () => {
+			document.querySelector("HTML").innerHTML = `this.socket.onclose`
+		}
 
 		// Listen for messages
 		this.socket.addEventListener('message', (event) => {
@@ -379,7 +387,7 @@ class Example extends Phaser.Scene {
 			}
 		})
 		cam = this.cameras.main
-		cam.zoom = 1.5
+		cam.zoom = 1
 		this.loop()
 	}
 
