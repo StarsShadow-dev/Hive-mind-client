@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
 	<script src="phaser.js"></script>
 	<title>hive mind</title>
@@ -7,6 +8,15 @@
 		p#camdata {
 			position: absolute;
 			color: white;
+		}
+
+		div#ui {
+			position: absolute;
+			justify-content: center;
+			align-items: center;
+			width: 800px;
+			height: 600px;
+			display: none;
 		}
 
 		#chat_container {
@@ -42,9 +52,85 @@
 		.message p .msg {
 			color: white;
 		}
+
+		.absolute_background {
+			position: absolute;
+			justify-content: center;
+			align-items: center;
+			display: flex;
+			background-color: gray;
+			width: 100px;
+			height: 100px;
+		}
 	</style>
 </head>
+
 <body>
+</body>
+<script>
+
+const pixelsPerMeter = 32
+
+const UI = {
+	menu: `
+<div class="absolute_background">
+	<p>menu</p>
+</div>`,
+}
+
+const Game = {
+	// replay_last is undefined when a replay is not being recorded
+	replay_last: undefined,
+	replay: [],
+
+	in_UI: false,
+	viewing_replay: false,
+	phaser: undefined,
+	scene: undefined,
+	socket: undefined,
+
+	activeCharacters: {},
+	projectiles: {},
+}
+
+var pass
+var myUUID
+var activeDroneUUIDs = []
+var socket
+var lastFrameTime
+var cam
+
+var keysPressed = {}
+var camPos = {
+	x: 0,
+	y: 0,
+}
+
+var socket_stream = [
+	// {
+	// 	type: "makeDrone",
+	// }
+]
+
+let chat_messages
+
+// for getting the delta time in a loop
+function secondsSinceLastFrame() {
+	if (lastFrameTime == 0) {
+		lastFrameTime = Date.now();
+		return 0;
+	}
+	const currentTime = lastFrameTime;
+	lastFrameTime = Date.now();
+	return (lastFrameTime - currentTime) / 1000;
+}
+
+function lerp(start, end, amt) {
+	return (1 - amt) * start + amt * end;
+}
+
+Game.show_main_screen = () => {
+	document.querySelector("body").innerHTML = `
 	<form id="login">
         <div class="form-control">
             <label for="UUID">UUID</label>
@@ -69,123 +155,216 @@
             />
         </div>
         <button type="submit">start</button>
-    </form>
-</body>
-<script>
+    </form>`
+	document.querySelector("#UUID").value = localStorage.getItem("UUID")
 
-const pixelsPerMeter = 32
+	document.querySelector("#login").addEventListener('submit', (e) => {
+		e.preventDefault(); // forms usually reload the webpage
+		const UUID = e.target.elements.UUID.value.trim()
+		pass = e.target.elements.pass.value.trim()
 
-var pass
-var myUUID
-var activeDroneUUIDs = []
-var socket
-var lastFrameTime
-var cam
-var PhaserGame
+		if (UUID && pass) {
+			// store UUID for later
+			localStorage.setItem("UUID", UUID)
 
-var keysPressed = {}
-var activeCharacters = {}
-var projectiles = {}
-var camPos = {
-	x: 0,
-	y: 0,
+			myUUID = localStorage.getItem("UUID")
+			document.querySelector("body").innerHTML = `
+<div id="ui"></div>
+<div id="chat_container">
+	<div id="chat_messages"></div>
+	<div id="chat_form">
+		<form id="chat-form">
+		<input
+			id="msg"
+			type="text"
+			placeholder="Type a Message"
+			autocomplete="off"
+			required
+		/>
+		<button id="message-submit">send</button>
+		</form>
+	</div>
+</div>
+`
+			chat_messages = document.querySelector("#chat_messages")
+			document.querySelector("#chat-form").addEventListener('submit', (e) => {
+				e.preventDefault();
+				if (Game.viewing_replay) return
+				// Get message text
+				let msg = e.target.elements.msg.value.trim()
+				if (!msg) {
+					return false;
+				}
+
+				socket_stream.push({
+					type: "chat",
+					msg: msg,
+				})
+				// Clear input
+				e.target.elements.msg.value = '';
+
+				e.target.elements.msg.focus();
+			});
+			start()
+		} else {
+			document.querySelector("body").innerHTML = "could not get your UUID or pass"
+		}
+	});
 }
 
-var pressed_keys = []
-var socket_stream = [
-	// {
-	// 	type: "makeDrone",
-	// }
-]
+Game.start_recording_replay = () => {
+	Game.replay_last = Date.now();
+}
 
-let chat_messages
+Game.stop_recording_replay = () => {
+	const replay_save = Game.replay
+	Game.replay_last = undefined
+	Game.replay = []
+	return replay_save
+}
 
-// I wasted so much time typing in my UUID Before I added this
-document.querySelector("#UUID").value = localStorage.getItem("UUID")
-
-// start the game
-document.querySelector("#login").addEventListener('submit', (e) => {
-	e.preventDefault(); // forms usually reload the webpage
-	const UUID = e.target.elements.UUID.value.trim()
-	pass = e.target.elements.pass.value.trim()
-	
-	if (UUID && pass) {
-		// store UUID for later
-		localStorage.setItem("UUID", UUID)
-
-		myUUID = localStorage.getItem("UUID")
-		document.querySelector("body").innerHTML = `
-		<p id="camdata"></p>
-		<div id="chat_container">
-			<div id="chat_messages"></div>
-			<div id="chat_form">
-				<form id="chat-form">
-				<input
-					id="msg"
-					type="text"
-					placeholder="Type a Message"
-					autocomplete="off"
-					required
-				/>
-				<button id="message-submit">send</button>
-				</form>
-			</div>
-		</div>
-		`
-		chat_messages = document.querySelector("#chat_messages")
-		start()
-	} else {
-		document.querySelector("body").innerHTML = "could not get your UUID or pass"
+// view a replay yay
+Game.view_replay = (replay) => {
+	console.info("starting replay")
+	Game.viewing_replay = true
+	Game.clean_scene()
+	let i = 0
+	const looper = () => {
+		Game.handle_updates(replay[i].updates)
+		i++
+		if (i == replay.length) {
+			Game.viewing_replay = false
+			console.info("replay complete")
+			return
+		}
+		setTimeout(looper, replay[i].time);
 	}
-});
+	looper()
+}
 
 // get the distance between point1 and point2
-function getDistance(point1, point2) {
+Game.getDistance = (point1, point2) => {
 	return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
 }
 
-// for getting the delta time in a loop
-function secondsSinceLastFrame() {
-	if (lastFrameTime == 0) {
-		lastFrameTime = Date.now();
-		return 0;
-	}
-	const currentTime = lastFrameTime;
-	lastFrameTime = Date.now();
-	return (lastFrameTime - currentTime) / 1000;
-}
-
-// -work in progress- function to smooth out unpredictability and lag in the netwerk
-function smooth(DeltaTime, sprite, speed, x, y) {
-	// const distance = getDistance(
-	// 	{ x: sprite.x, y: sprite.y }, 
-	// 	{ x: x, y: y }
-	// )
-	// let distanceToTravel = DeltaTime + distance / 10;
-	// const angle = Math.atan2(y - sprite.y, x - sprite.x);
-
+// function to smooth out unpredictability and lag in the netwerk
+Game.smooth = (DeltaTime, sprite, speed, x, y) => {
 	sprite.x = lerp(sprite.x, x, 0.1)
 	sprite.y = lerp(sprite.y, y, 0.1)
-	// if (distance > speed) {
-	// 	let distanceToTravel = DeltaTime + speed;
-	// 	const angle = Math.atan2(y - sprite.y, x - sprite.x);
-
-	// 	sprite.x += distanceToTravel * Math.cos(angle)
-	// 	sprite.y += distanceToTravel * Math.sin(angle)
-	// } else if (distance <= speed) { // at the end of the movement will be more precise but may cause other issues
-	// 	let distanceToTravel = DeltaTime + distance / 10;
-	// 	const angle = Math.atan2(y - sprite.y, x - sprite.x);
-
-	// 	sprite.x += distanceToTravel * Math.cos(angle)
-	// 	sprite.y += distanceToTravel * Math.sin(angle)
-	// }
 }
 
-function lerp(start, end, amt) {
-	return (1 - amt) * start + amt * end;
+Game.handle_updates = (updates) => {
+	updates.forEach(update => {
+		const data = update.data
+		switch (update.type) {
+			case "drone": // information about a drone
+				const existingCharacter = Game.activeCharacters[data.UUID]
+				if (existingCharacter) {
+					existingCharacter.gameState = data
+				} else {
+					console.log(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player')
+					const sprite = Game.scene.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player').setDisplaySize(pixelsPerMeter, pixelsPerMeter);
+					Game.activeCharacters[data.UUID] = {
+						ownerUUID: data.ownerUUID,
+						sprite: sprite,
+						gameState: data,
+					}
+					if (data.ownerUUID == myUUID) {
+						activeDroneUUIDs.push(data.UUID)
+					}
+				}
+				break;
+			case "noDrone": // drone no longer exists TODO: have the server give more information about why the drone is gone
+				const droneToRm = Game.activeCharacters[data.UUID]
+				if (!droneToRm) return console.error("no droneToRm?", update)
+				droneToRm.sprite.destroy()
+				delete Game.activeCharacters[data.UUID]
+				break;
+			case "pro": // a projectile exists
+				const projectile = Game.projectiles[data.id]
+				if (projectile) {
+					projectile.gameState = data
+				} else {
+					const sprite = Game.scene.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'projectile')
+					Game.projectiles[data.id] = {
+						sprite: sprite,
+						gameState: data,
+					}
+				}
+				break;
+			case "noPro": // a projectile no longer exists
+				const proToRm = Game.projectiles[data.id]
+				if (!proToRm) return console.error("no proToRm?", update)
+				proToRm.sprite.destroy()
+				delete Game.projectiles[data.id]
+				break;
+			case "chat":
+				Game.output_message_to_chat(data.name, data.msg)
+			default:
+				break;
+		}
+	});
 }
 
-function outputMessage(name, msg) {
+Game.show_UI = (text) => {
+	document.querySelector("#ui").innerHTML = text
+	document.querySelector("#ui").style.display = "flex"
+
+	Game.in_UI = true
+}
+
+Game.close_UI = (text) => {
+	document.querySelector("#ui").style.display = "none"
+
+	Game.in_UI = false
+}
+
+Game.clean_scene = () => {
+	chat_messages.innerHTML = ""
+	for (const key in Game.activeCharacters) {
+		Game.activeCharacters[key].sprite.destroy()
+		delete Game.activeCharacters[key]
+	}
+	for (const key in Game.projectiles) {
+		Game.projectiles[key].sprite.destroy()
+		delete Game.projectiles[key]
+	}
+}
+
+Game.initialize_web_socket = (url, UUID, pass) => {
+	// create a web socket
+	Game.socket = new WebSocket(
+		url,
+		[UUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
+	);
+
+	Game.socket.onclose = () => {
+		document.querySelector("HTML").innerHTML = `socket.onclose`
+	}
+
+	// Listen for messages
+	Game.socket.addEventListener('message', (event) => {
+		const updates = JSON.parse(event.data)
+		// uncomment the line below to log all updates from the server
+		console.log('updates from server ', updates);
+
+		if (Game.replay_last != undefined) {
+			Game.replay.push({
+				time: Date.now() - Game.replay_last,
+				updates,
+			})
+			Game.replay_last = Date.now()
+		}
+
+		Game.handle_updates(updates)
+	});
+}
+
+Game.end_web_socket = () => {
+	// ...
+}
+
+Game.output_message_to_chat = (name, msg) => {
 	let movedown = false
 	if (chat_messages.clientHeight + chat_messages.scrollTop >= chat_messages.scrollHeight) {
 		movedown = true
@@ -234,102 +413,21 @@ class Example extends Phaser.Scene {
 	}
 
 	create() {
+		Game.scene = this
+		cam = this.cameras.main
+		cam.zoom = 1
+
+		// so you know where the center of the map is
 		this.add.image(0, 0, 'copper-wall');
 		this.add.image(0, pixelsPerMeter, 'copper-wall');
-
 		this.add.image(pixelsPerMeter, 0, 'copper-wall');
 		this.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
 
-		// create a web socket
-		this.socket = new WebSocket(
-			`ws://localhost:3000`,
-			[myUUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
-		);
-
-		this.socket.onclose = () => {
-			document.querySelector("HTML").innerHTML = `this.socket.onclose`
-		}
-
-		// Listen for messages
-		this.socket.addEventListener('message', (event) => {
-			const updates = JSON.parse(event.data)
-			// uncomment the line below to log all updates from the server
-			console.log('updates from server ', updates);
-
-			updates.forEach(update => {
-				const data = update.data
-				switch (update.type) {
-					case "drone": // information about a drone
-						const existingCharacter = activeCharacters[data.UUID]
-						if (existingCharacter) {
-							existingCharacter.gameState = data
-						} else {
-							console.log(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player')
-							const sprite = this.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player').setDisplaySize(pixelsPerMeter, pixelsPerMeter);
-							activeCharacters[data.UUID] = {
-								ownerUUID: data.ownerUUID,
-								sprite: sprite,
-								gameState: data,
-							}
-							if (data.ownerUUID == myUUID) {
-								activeDroneUUIDs.push(data.UUID)
-							}
-						}
-						break;
-					case "noDrone": // drone no longer exists TODO: have the server give more information about why the drone is gone
-						const droneToRm = activeCharacters[data.UUID]
-						if (!droneToRm) return console.error("no droneToRm?", update)
-						droneToRm.sprite.destroy()
-						delete activeCharacters[data.UUID]
-						break;
-					case "pro": // a projectile exists
-						const projectile = projectiles[data.id]
-						if (projectile) {
-							projectile.gameState = data
-						} else {
-							const sprite = this.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'projectile')
-							projectiles[data.id] = {
-								sprite: sprite,
-								gameState: data,
-							}
-						}
-						break;
-					case "noPro": // a projectile no longer exists
-						const proToRm = projectiles[data.id]
-						if (!proToRm) return console.error("no proToRm?", update)
-						proToRm.sprite.destroy()
-						delete projectiles[data.id]
-						break;
-						// TODO: add a chat
-					case "chat":
-						outputMessage(data.name, data.msg)
-					default:
-						break;
-				}
-			});
-		});
-
-		document.querySelector("#chat-form").addEventListener('submit', (e) => {
-			e.preventDefault();
-			// Get message text
-			let msg = e.target.elements.msg.value.trim()
-			if (!msg) {
-				return false;
-			}
-
-			socket_stream.push({
-				type: "chat",
-				msg: msg,
-			})
-			// Clear input
-			e.target.elements.msg.value = '';
-
-			e.target.elements.msg.focus();
-		});
+		Game.initialize_web_socket(`ws://localhost:3000`, myUUID, pass)
 
 		this.input.keyboard.on('keydown', (event) => {
 			if (event.key == " ") {
-				if (!activeDroneUUIDs[0]) return
+				if (!activeDroneUUIDs[0] || Game.viewing_replay) return
 				socket_stream.push({
 					type: "move",
 					data: {
@@ -340,7 +438,15 @@ class Example extends Phaser.Scene {
 				})
 			} else if (event.key == "Escape") {
 				// unfocus the current element
-				document.activeElement.blur()
+				if (Game.in_UI) {
+					Game.close_UI()
+				} else {
+					if (document.activeElement.tagName == "BODY") {
+						Game.show_UI(UI.menu)
+					} else {
+						document.activeElement.blur()
+					}
+				}
 			}
 			keysPressed[event.key] = true
 		});
@@ -350,12 +456,15 @@ class Example extends Phaser.Scene {
 		let firingInterval
 		let lastFireX = 0
 		let lastFireY = 0
+
 		this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
+			if (Game.viewing_replay) return
+
 			if (firingInterval == undefined) {
 				firingInterval = setInterval(() => {
-					if (getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY,}) > pixelsPerMeter) {
+					if (Game.getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY, }) > pixelsPerMeter) {
 						for (let i = 0; i < activeDroneUUIDs.length; i++) {
-							const drone = activeCharacters[activeDroneUUIDs[i]]
+							const drone = Game.activeCharacters[activeDroneUUIDs[i]]
 							socket_stream.push({
 								type: "shoot",
 								data: {
@@ -371,13 +480,15 @@ class Example extends Phaser.Scene {
 			}
 		})
 		this.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
+			if (Game.viewing_replay) return
+
 			const { worldX, worldY } = pointer
 
 			clearInterval(firingInterval)
 			firingInterval = undefined
-			
+
 			for (let i = 0; i < activeDroneUUIDs.length; i++) {
-				const drone = activeCharacters[activeDroneUUIDs[i]]
+				const drone = Game.activeCharacters[activeDroneUUIDs[i]]
 				socket_stream.push({
 					type: "shoot",
 					data: {
@@ -386,20 +497,20 @@ class Example extends Phaser.Scene {
 				})
 			}
 		})
-		cam = this.cameras.main
-		cam.zoom = 1
+
+		// start the loop
 		this.loop()
 	}
 
 	// 10 Times a second
 	// if socket_stream has something socket.emit it
 	loop() {
-		if (this.socket.readyState == 1 && socket_stream.length != 0) {
+		if (Game.socket && Game.socket.readyState == 1 && socket_stream.length > 0) {
 			let actions = socket_stream.slice(0, 10)
 			socket_stream.splice(0, 10)
 			// console.log("actions", actions)
 
-			this.socket.send(JSON.stringify(actions))
+			Game.socket.send(JSON.stringify(actions))
 		}
 		setTimeout(() => { this.loop() }, 100); // continue the loop
 	}
@@ -409,18 +520,18 @@ class Example extends Phaser.Scene {
 		const DeltaTime = secondsSinceLastFrame()
 
 		// Smooth movement for projectiles and characters
-		for (const key in projectiles) {
-			const pro = projectiles[key];
-			smooth(DeltaTime, pro.sprite, pro.gameState.speed * pixelsPerMeter, pro.gameState.x * pixelsPerMeter, pro.gameState.y * pixelsPerMeter)
+		for (const key in Game.projectiles) {
+			const pro = Game.projectiles[key];
+			Game.smooth(DeltaTime, pro.sprite, pro.gameState.speed * pixelsPerMeter, pro.gameState.x * pixelsPerMeter, pro.gameState.y * pixelsPerMeter)
 		}
-		for (const key in activeCharacters) {
-			const character = activeCharacters[key];
-			smooth(DeltaTime, character.sprite, character.gameState.speed * pixelsPerMeter, character.gameState.x * pixelsPerMeter, character.gameState.y * pixelsPerMeter)
+		for (const key in Game.activeCharacters) {
+			const character = Game.activeCharacters[key];
+			Game.smooth(DeltaTime, character.sprite, character.gameState.speed * pixelsPerMeter, character.gameState.x * pixelsPerMeter, character.gameState.y * pixelsPerMeter)
 		}
 
 		// trying to stop the camera from moving around while you type in the chat
 		if (document.activeElement.id == "msg") return
-		
+
 		// Control over the camera
 		const u = keysPressed["w"] // up
 		const d = keysPressed["s"] // down
@@ -446,21 +557,23 @@ class Example extends Phaser.Scene {
 
 		if (!cam) return
 		cam.pan(camPos.x, camPos.y, 100, 'Linear')
-		document.querySelector("#camdata").innerHTML = `${camPos.x} ${camPos.y}`
+		// document.querySelector("#camdata").innerHTML = `${camPos.x} ${camPos.y}`
 	}
 }
 
 // start the game
 function start() {
-
 	var scene = new Example()
 
-	PhaserGame = new Phaser.Game({
+	Game.phaser = new Phaser.Game({
 		type: Phaser.AUTO,
 		width: 800,
 		height: 600,
-		scene: [ scene ]
+		scene: [scene]
 	});
 }
+
+Game.show_main_screen()
 </script>
+
 </html>
