@@ -59,8 +59,18 @@
 			align-items: center;
 			display: flex;
 			background-color: gray;
-			width: 100px;
-			height: 100px;
+			width: 200px;
+			height: 200px;
+		}
+
+		.absolute_background_big {
+			position: absolute;
+			justify-content: center;
+			align-items: center;
+			display: flex;
+			background-color: gray;
+			width: 400px;
+			height: 400px;
 		}
 	</style>
 </head>
@@ -72,11 +82,136 @@
 const pixelsPerMeter = 32
 
 const UI = {
-	menu: `
-<div class="absolute_background">
-	<p>menu</p>
-</div>`,
+	main_menu: () => {
+		const background = document.createElement("div")
+		background.classList.add("absolute_background_big")
+
+		background.innerHTML = `
+			<form id="login">
+				<div class="form_control">
+					<label for="UUID">UUID</label>
+					<input
+					type="text"
+					name="UUID"
+					id="UUID"
+					placeholder="Enter UUID"
+					autocomplete="off"
+					required
+					/>
+				</div>
+				<div class="form_control">
+					<label for="pass">pass</label>
+					<input
+					type="text"
+					name="pass"
+					id="pass"
+					placeholder="Enter 1 time pass"
+					autocomplete="off"
+					required
+					/>
+				</div>
+				<button type="submit">start</button>
+			</form>`
+
+		background.querySelector("#UUID").value = localStorage.getItem("UUID")
+
+		background.querySelector("#login").addEventListener('submit', (e) => {
+			e.preventDefault(); // forms usually reload the webpage
+			const UUID = e.target.elements.UUID.value.trim()
+			pass = e.target.elements.pass.value.trim()
+
+			if (UUID && pass) {
+				// store UUID for later
+				localStorage.setItem("UUID", UUID)
+
+				myUUID = localStorage.getItem("UUID")
+				chat_messages = document.querySelector("#chat_messages")
+				document.querySelector("#chat-form").addEventListener('submit', (e) => {
+					e.preventDefault();
+					if (Game.viewing_replay) return
+					// Get message text
+					let msg = e.target.elements.msg.value.trim()
+					if (!msg) {
+						return false;
+					}
+
+					socket_stream.push({
+						type: "chat",
+						msg: msg,
+					})
+					// Clear input
+					e.target.elements.msg.value = '';
+
+					e.target.elements.msg.focus();
+				});
+				Game.start_recording_replay()
+				Game.initialize_web_socket('ws://localhost:3000', myUUID, pass)
+			} else {
+				document.querySelector("body").innerHTML = "could not get your UUID or pass"
+			}
+		});
+
+		// const div = document.createElement("div")
+		// background.appendChild(div)
+
+		// const p = document.createElement("p")
+		// p.innerText = "main_menu"
+		// div.appendChild(p)
+
+		// const form = document.createElement("form")
+		// form.id = "login"
+		// div.appendChild(form)
+
+		// const form_control1 = document.createElement("div")
+		// form_control1.classList.add("form_control")
+		// if (true) {
+		// 	const label = document.createElement("label")
+
+		// 	const input = document.createElement("input")
+		// }
+		// form.appendChild(form_control1)
+
+		// const form_control2 = document.createElement("div")
+		// form_control2.classList.add("form_control")
+		// form.appendChild(form_control2)
+	
+		return background
+	},
+	play_menu: () => {
+		const background = document.createElement("div")
+		background.classList.add("absolute_background")
+
+		const div = document.createElement("div")
+		background.appendChild(div)
+
+		let replayButton = document.createElement("button")
+		if (Game.replay_last == undefined) {
+			replayButton.innerText = "start recording replay"
+			replayButton.onclick = Game.start_recording_replay
+		} else {
+			replayButton.innerText = "stop recording replay"
+			replayButton.onclick = Game.stop_recording_replay
+		}
+		div.appendChild(replayButton)
+
+		const replay_to_clipboard = document.createElement("button")
+		replay_to_clipboard.innerText = "save_replay_to_clipboard"
+		replay_to_clipboard.onclick = Game.save_replay_to_clipboard
+		div.appendChild(replay_to_clipboard)
+
+		// disconnect button
+		const DCbutton = document.createElement("button")
+		DCbutton.innerText = "disconnect"
+		DCbutton.onclick = () => {
+			Game.socket.close()
+		}
+		div.appendChild(DCbutton)
+
+		return background
+	},
 }
+
+
 
 const Game = {
 	// replay_last is undefined when a replay is not being recorded
@@ -106,11 +241,10 @@ var camPos = {
 	y: 0,
 }
 
-var socket_stream = [
-	// {
-	// 	type: "makeDrone",
-	// }
-]
+var socket_stream = []
+// socket_stream.push({
+// 	type: "makeDrone",
+// })
 
 let chat_messages
 
@@ -129,101 +263,24 @@ function lerp(start, end, amt) {
 	return (1 - amt) * start + amt * end;
 }
 
-Game.show_main_screen = () => {
-	document.querySelector("body").innerHTML = `
-	<form id="login">
-        <div class="form-control">
-            <label for="UUID">UUID</label>
-            <input
-            type="text"
-            name="UUID"
-            id="UUID"
-            placeholder="Enter UUID"
-            autocomplete="off"
-            required
-            />
-        </div>
-        <div class="form-control">
-            <label for="pass">pass</label>
-            <input
-            type="text"
-            name="pass"
-            id="pass"
-            placeholder="Enter 1 time pass"
-            autocomplete="off"
-            required
-            />
-        </div>
-        <button type="submit">start</button>
-    </form>`
-	document.querySelector("#UUID").value = localStorage.getItem("UUID")
-
-	document.querySelector("#login").addEventListener('submit', (e) => {
-		e.preventDefault(); // forms usually reload the webpage
-		const UUID = e.target.elements.UUID.value.trim()
-		pass = e.target.elements.pass.value.trim()
-
-		if (UUID && pass) {
-			// store UUID for later
-			localStorage.setItem("UUID", UUID)
-
-			myUUID = localStorage.getItem("UUID")
-			document.querySelector("body").innerHTML = `
-<div id="ui"></div>
-<div id="chat_container">
-	<div id="chat_messages"></div>
-	<div id="chat_form">
-		<form id="chat-form">
-		<input
-			id="msg"
-			type="text"
-			placeholder="Type a Message"
-			autocomplete="off"
-			required
-		/>
-		<button id="message-submit">send</button>
-		</form>
-	</div>
-</div>
-`
-			chat_messages = document.querySelector("#chat_messages")
-			document.querySelector("#chat-form").addEventListener('submit', (e) => {
-				e.preventDefault();
-				if (Game.viewing_replay) return
-				// Get message text
-				let msg = e.target.elements.msg.value.trim()
-				if (!msg) {
-					return false;
-				}
-
-				socket_stream.push({
-					type: "chat",
-					msg: msg,
-				})
-				// Clear input
-				e.target.elements.msg.value = '';
-
-				e.target.elements.msg.focus();
-			});
-			start()
-		} else {
-			document.querySelector("body").innerHTML = "could not get your UUID or pass"
-		}
-	});
-}
-
 Game.start_recording_replay = () => {
+	Game.close_UI()
+	Game.output_message_to_chat("replay", "started recording")
+	console.info("start recording replay")
+	Game.replay = []
 	Game.replay_last = Date.now();
 }
 
 Game.stop_recording_replay = () => {
+	Game.close_UI()
+	Game.output_message_to_chat("replay", "stopped recording")
+	console.info("stop recording replay")
 	const replay_save = Game.replay
 	Game.replay_last = undefined
-	Game.replay = []
 	return replay_save
 }
 
-// view a replay yay
+// view a replay
 Game.view_replay = (replay) => {
 	console.info("starting replay")
 	Game.viewing_replay = true
@@ -240,6 +297,11 @@ Game.view_replay = (replay) => {
 		setTimeout(looper, replay[i].time);
 	}
 	looper()
+}
+
+// this only works in a secure environment
+Game.save_replay_to_clipboard = () => {
+	navigator.clipboard.writeText(JSON.stringify(Game.replay))
 }
 
 // get the distance between point1 and point2
@@ -262,7 +324,6 @@ Game.handle_updates = (updates) => {
 				if (existingCharacter) {
 					existingCharacter.gameState = data
 				} else {
-					console.log(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player')
 					const sprite = Game.scene.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player').setDisplaySize(pixelsPerMeter, pixelsPerMeter);
 					Game.activeCharacters[data.UUID] = {
 						ownerUUID: data.ownerUUID,
@@ -306,10 +367,10 @@ Game.handle_updates = (updates) => {
 	});
 }
 
-Game.show_UI = (text) => {
-	document.querySelector("#ui").innerHTML = text
+Game.show_UI = (UI_name) => {
+	document.querySelector("#ui").innerHTML = ""
+	document.querySelector("#ui").appendChild(UI[UI_name]())
 	document.querySelector("#ui").style.display = "flex"
-
 	Game.in_UI = true
 }
 
@@ -332,6 +393,7 @@ Game.clean_scene = () => {
 }
 
 Game.initialize_web_socket = (url, UUID, pass) => {
+	console.info("connected to server")
 	// create a web socket
 	Game.socket = new WebSocket(
 		url,
@@ -339,14 +401,16 @@ Game.initialize_web_socket = (url, UUID, pass) => {
 	);
 
 	Game.socket.onclose = () => {
-		document.querySelector("HTML").innerHTML = `socket.onclose`
+		console.info("disconnected from server")
+		Game.show_UI("main_menu")
+		Game.socket = undefined
 	}
 
 	// Listen for messages
 	Game.socket.addEventListener('message', (event) => {
 		const updates = JSON.parse(event.data)
 		// uncomment the line below to log all updates from the server
-		console.log('updates from server ', updates);
+		// console.log('updates from server ', updates);
 
 		if (Game.replay_last != undefined) {
 			Game.replay.push({
@@ -358,12 +422,15 @@ Game.initialize_web_socket = (url, UUID, pass) => {
 
 		Game.handle_updates(updates)
 	});
+
+	// if a ui is opened close it
+	Game.close_UI()
+
+	// clean the scene
+	Game.clean_scene()
 }
 
-Game.end_web_socket = () => {
-	// ...
-}
-
+// insert a message into the HTML tree
 Game.output_message_to_chat = (name, msg) => {
 	let movedown = false
 	if (chat_messages.clientHeight + chat_messages.scrollTop >= chat_messages.scrollHeight) {
@@ -371,22 +438,11 @@ Game.output_message_to_chat = (name, msg) => {
 	}
 	const div = document.createElement('div');
 	div.classList.add('message');
-	div.ondblclick
-	// div.oncontextmenu = (e) => {
-	// 	e.preventDefault()
-	// 	e.srcElement
-	// 	console.log(e)
-	// }
 
 	const p = document.createElement('p');
 	p.classList.add('username');
 	p.innerText = name + "  " + msg
 	div.appendChild(p);
-
-	// const para = document.createElement('p');
-	// para.classList.add('msg');
-	// para.innerText = msg;
-	// div.appendChild(para);
 
 	chat_messages.append(div);
 	if (movedown) {
@@ -423,8 +479,6 @@ class Example extends Phaser.Scene {
 		this.add.image(pixelsPerMeter, 0, 'copper-wall');
 		this.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
 
-		Game.initialize_web_socket(`ws://localhost:3000`, myUUID, pass)
-
 		this.input.keyboard.on('keydown', (event) => {
 			if (event.key == " ") {
 				if (!activeDroneUUIDs[0] || Game.viewing_replay) return
@@ -437,13 +491,17 @@ class Example extends Phaser.Scene {
 					},
 				})
 			} else if (event.key == "Escape") {
-				// unfocus the current element
 				if (Game.in_UI) {
 					Game.close_UI()
 				} else {
 					if (document.activeElement.tagName == "BODY") {
-						Game.show_UI(UI.menu)
+						if (Game.socket == undefined) {
+							Game.show_UI("main_menu")
+						} else {
+							Game.show_UI("play_menu")
+						}
 					} else {
+						// unfocus the current element
 						document.activeElement.blur()
 					}
 				}
@@ -562,7 +620,26 @@ class Example extends Phaser.Scene {
 }
 
 // start the game
-function start() {
+Game.start = () => {
+	document.querySelector("body").innerHTML = `
+<div id="ui"></div>
+<div id="chat_container">
+	<div id="chat_messages"></div>
+	<div id="chat_form">
+		<form id="chat-form">
+		<input
+			id="msg"
+			type="text"
+			placeholder="Type a Message"
+			autocomplete="off"
+			required
+		/>
+		<button id="message-submit">send</button>
+		</form>
+	</div>
+</div>`
+	Game.show_UI("main_menu")
+
 	var scene = new Example()
 
 	Game.phaser = new Phaser.Game({
@@ -573,7 +650,7 @@ function start() {
 	});
 }
 
-Game.show_main_screen()
+Game.start()
 </script>
 
 </html>
