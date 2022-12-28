@@ -211,7 +211,7 @@ const UI = {
 	},
 }
 
-
+let test
 
 const Game = {
 	// replay_last is undefined when a replay is not being recorded
@@ -224,8 +224,8 @@ const Game = {
 	scene: undefined,
 	socket: undefined,
 
-	activeCharacters: {},
-	projectiles: {},
+	loaded_images: [],
+	characters: {},
 }
 
 var pass
@@ -319,13 +319,13 @@ Game.handle_updates = (updates) => {
 	updates.forEach(update => {
 		const data = update.data
 		switch (update.type) {
-			case "drone": // information about a drone
-				const existingCharacter = Game.activeCharacters[data.UUID]
+			case "character": // a character exists
+				const existingCharacter = Game.characters[data.UUID]
 				if (existingCharacter) {
 					existingCharacter.gameState = data
 				} else {
-					const sprite = Game.scene.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'player').setDisplaySize(pixelsPerMeter, pixelsPerMeter);
-					Game.activeCharacters[data.UUID] = {
+					const sprite = Game.scene.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, data.type);
+					Game.characters[data.UUID] = {
 						ownerUUID: data.ownerUUID,
 						sprite: sprite,
 						gameState: data,
@@ -335,29 +335,12 @@ Game.handle_updates = (updates) => {
 					}
 				}
 				break;
-			case "noDrone": // drone no longer exists TODO: have the server give more information about why the drone is gone
-				const droneToRm = Game.activeCharacters[data.UUID]
+			case "noCharacter": // a character no longer exists TODO: have the server give more information about why the character is gone
+				const droneToRm = Game.characters[data.UUID]
 				if (!droneToRm) return console.error("no droneToRm?", update)
+				// remove the sprite
 				droneToRm.sprite.destroy()
-				delete Game.activeCharacters[data.UUID]
-				break;
-			case "pro": // a projectile exists
-				const projectile = Game.projectiles[data.id]
-				if (projectile) {
-					projectile.gameState = data
-				} else {
-					const sprite = Game.scene.add.image(data.x * pixelsPerMeter, data.y * pixelsPerMeter, 'projectile')
-					Game.projectiles[data.id] = {
-						sprite: sprite,
-						gameState: data,
-					}
-				}
-				break;
-			case "noPro": // a projectile no longer exists
-				const proToRm = Game.projectiles[data.id]
-				if (!proToRm) return console.error("no proToRm?", update)
-				proToRm.sprite.destroy()
-				delete Game.projectiles[data.id]
+				delete Game.characters[data.UUID]
 				break;
 			case "chat":
 				Game.output_message_to_chat(data.name, data.msg)
@@ -382,13 +365,9 @@ Game.close_UI = (text) => {
 
 Game.clean_scene = () => {
 	chat_messages.innerHTML = ""
-	for (const key in Game.activeCharacters) {
-		Game.activeCharacters[key].sprite.destroy()
-		delete Game.activeCharacters[key]
-	}
-	for (const key in Game.projectiles) {
-		Game.projectiles[key].sprite.destroy()
-		delete Game.projectiles[key]
+	for (const key in Game.characters) {
+		Game.characters[key].sprite.destroy()
+		delete Game.characters[key]
 	}
 }
 
@@ -428,6 +407,29 @@ Game.initialize_web_socket = (url, UUID, pass) => {
 
 	// clean the scene
 	Game.clean_scene()
+
+	Game.unload_images()
+
+	Game.load_images([
+		{
+			name: "D_alpha",
+			path: "assets/D_alpha.png",
+		},
+		{
+			name: "P_bolt",
+			path: "assets/P_bolt.png",
+		},
+		{
+			name: "copper-wall",
+			path: "assets/copper-wall.png",
+		},
+	], () => {
+		// so you visually know where the center of the map is
+		Game.scene.add.image(0, 0, 'copper-wall');
+		Game.scene.add.image(0, pixelsPerMeter, 'copper-wall');
+		Game.scene.add.image(pixelsPerMeter, 0, 'copper-wall');
+		Game.scene.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
+	})
 }
 
 // insert a message into the HTML tree
@@ -450,34 +452,31 @@ Game.output_message_to_chat = (name, msg) => {
 	}
 }
 
+Game.load_images = (images, run) => {
+	images.forEach(image => {
+		Game.scene.load.image(image.name, image.path);
+	})
+	Game.scene.load.once(Phaser.Loader.Events.COMPLETE, run)
+	Game.scene.load.start()
+}
+
+Game.unload_images = () => {
+	Game.loaded_images.forEach(name => {
+		Game.scene.textures.remove(name)
+	})
+}
+
 class Example extends Phaser.Scene {
 	constructor() {
 		super();
 	}
 
-	preload() {
-		// preload images
-
-		// environment
-
-		// Characters
-		this.load.image('player', 'assets/player.png');
-		this.load.image('projectile', 'assets/projectile.png');
-
-		// nodes
-		this.load.image('copper-wall', 'assets/copper-wall.png');
-	}
+	preload() {}
 
 	create() {
 		Game.scene = this
 		cam = this.cameras.main
 		cam.zoom = 1
-
-		// so you know where the center of the map is
-		this.add.image(0, 0, 'copper-wall');
-		this.add.image(0, pixelsPerMeter, 'copper-wall');
-		this.add.image(pixelsPerMeter, 0, 'copper-wall');
-		this.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
 
 		this.input.keyboard.on('keydown', (event) => {
 			if (event.key == " ") {
@@ -522,7 +521,7 @@ class Example extends Phaser.Scene {
 				firingInterval = setInterval(() => {
 					if (Game.getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY, }) > pixelsPerMeter) {
 						for (let i = 0; i < activeDroneUUIDs.length; i++) {
-							const drone = Game.activeCharacters[activeDroneUUIDs[i]]
+							const drone = Game.characters[activeDroneUUIDs[i]]
 							socket_stream.push({
 								type: "shoot",
 								data: {
@@ -546,7 +545,7 @@ class Example extends Phaser.Scene {
 			firingInterval = undefined
 
 			for (let i = 0; i < activeDroneUUIDs.length; i++) {
-				const drone = Game.activeCharacters[activeDroneUUIDs[i]]
+				const drone = Game.characters[activeDroneUUIDs[i]]
 				socket_stream.push({
 					type: "shoot",
 					data: {
@@ -566,7 +565,7 @@ class Example extends Phaser.Scene {
 		if (Game.socket && Game.socket.readyState == 1 && socket_stream.length > 0) {
 			let actions = socket_stream.slice(0, 10)
 			socket_stream.splice(0, 10)
-			// console.log("actions", actions)
+			console.log("actions", actions)
 
 			Game.socket.send(JSON.stringify(actions))
 		}
@@ -577,13 +576,9 @@ class Example extends Phaser.Scene {
 	update() {
 		const DeltaTime = secondsSinceLastFrame()
 
-		// Smooth movement for projectiles and characters
-		for (const key in Game.projectiles) {
-			const pro = Game.projectiles[key];
-			Game.smooth(DeltaTime, pro.sprite, pro.gameState.speed * pixelsPerMeter, pro.gameState.x * pixelsPerMeter, pro.gameState.y * pixelsPerMeter)
-		}
-		for (const key in Game.activeCharacters) {
-			const character = Game.activeCharacters[key];
+		// Smooth movement for  characters
+		for (const key in Game.characters) {
+			const character = Game.characters[key];
 			Game.smooth(DeltaTime, character.sprite, character.gameState.speed * pixelsPerMeter, character.gameState.x * pixelsPerMeter, character.gameState.y * pixelsPerMeter)
 		}
 
@@ -640,13 +635,13 @@ Game.start = () => {
 </div>`
 	Game.show_UI("main_menu")
 
-	var scene = new Example()
+	Game.scene = new Example()
 
 	Game.phaser = new Phaser.Game({
 		type: Phaser.AUTO,
 		width: 800,
 		height: 600,
-		scene: [scene]
+		scene: [Game.scene]
 	});
 }
 

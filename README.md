@@ -59,22 +59,16 @@ update = {
 
 List of update types:
 
-* `drone` a drone exists
+* `character` a character exists
     * usually contains:
     * `UUID` UUID of the drone
-    * `x` drones x coordinate
-    * `y` drones y coordinate
-    * also contains when drone is created:
-    * `ownerUUID` UUID of the drones owner
-* `noDrone` a drone no longer exists 
+    * `x` characters x coordinate
+    * `y` characters y coordinate
+    * also contains when character is created:
+    * `ownerUUID` UUID of the characters owner
+* `noCharacter` a character no longer exists 
     * `UUID` UUID of the drone that is gone
-    * TODO add information describing why the drone is gone
-* `pro` a projectile exists
-    * `id` id of the projectile
-    * `x` projectiles x coordinate
-    * `y` projectiles y coordinate
-* `noPro` a projectile no longer exists
-    * `id` id of the projectile
+    * TODO add information describing why the character is gone
 * `chat` a player has typed a chat message
     * `senderUUID` UUID of the sender
     * `name` name of the sender
@@ -96,19 +90,13 @@ socket.addEventListener('message', (event) => {
     updates.forEach(update => {
         const data = update.data
         switch (update.type) {
-            case "drone":
-                // create the drone if it does not exist
-                // move the drone if it does exist
+            case "character":
+                // create the character if it does not exist
+                // move the character if it does exist
                 break;
-            case "noDrone":
-                // remove the drone
+            case "noCharacter":
+                // remove the character
                 break;
-            case "pro":
-                // create the projectile if it does not exist
-                // move the projectile if it does exist
-                break;
-            case "noPro":
-                // remove the projectile
             case "chat":
                 // display a chat message
                 break;
