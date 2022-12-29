@@ -128,18 +128,18 @@ const UI = {
 				chat_messages = document.querySelector("#chat_messages")
 				document.querySelector("#chat-form").addEventListener('submit', (e) => {
 					e.preventDefault();
-					if (Game.viewing_replay) return
-					// Get message text
+					if (Game.socket == undefined || Game.viewing_replay) return
+					// get message text
 					let msg = e.target.elements.msg.value.trim()
 					if (!msg) {
 						return false;
 					}
 
-					socket_stream.push({
+					Game.socket_stream.push({
 						type: "chat",
 						msg: msg,
 					})
-					// Clear input
+					// clear input
 					e.target.elements.msg.value = '';
 
 					e.target.elements.msg.focus();
@@ -150,30 +150,6 @@ const UI = {
 				document.querySelector("body").innerHTML = "could not get your UUID or pass"
 			}
 		});
-
-		// const div = document.createElement("div")
-		// background.appendChild(div)
-
-		// const p = document.createElement("p")
-		// p.innerText = "main_menu"
-		// div.appendChild(p)
-
-		// const form = document.createElement("form")
-		// form.id = "login"
-		// div.appendChild(form)
-
-		// const form_control1 = document.createElement("div")
-		// form_control1.classList.add("form_control")
-		// if (true) {
-		// 	const label = document.createElement("label")
-
-		// 	const input = document.createElement("input")
-		// }
-		// form.appendChild(form_control1)
-
-		// const form_control2 = document.createElement("div")
-		// form_control2.classList.add("form_control")
-		// form.appendChild(form_control2)
 	
 		return background
 	},
@@ -226,14 +202,17 @@ const Game = {
 
 	loaded_images: [],
 	characters: {},
+
+	socket_stream: []
+	// Game.socket_stream.push({
+	// 	type: "makeDrone",
+	// })
 }
 
 var pass
 var myUUID
 var activeDroneUUIDs = []
-var socket
 var lastFrameTime
-var cam
 
 var keysPressed = {}
 var camPos = {
@@ -241,12 +220,11 @@ var camPos = {
 	y: 0,
 }
 
-var socket_stream = []
-// socket_stream.push({
-// 	type: "makeDrone",
-// })
-
 let chat_messages
+
+//
+// math
+//
 
 // for getting the delta time in a loop
 function secondsSinceLastFrame() {
@@ -264,6 +242,22 @@ function lerp(start, end, amt) {
 	return (1 - amt) * start + amt * end;
 }
 
+// get the distance between point1 and point2
+Game.getDistance = (point1, point2) => {
+	return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
+}
+
+// function to smooth out unpredictability and lag in the netwerk
+Game.smooth = (DeltaTime, sprite, speed, x, y) => {
+	sprite.x = lerp(sprite.x, x, 0.1)
+	sprite.y = lerp(sprite.y, y, 0.1)
+}
+
+//
+// replays
+//
+
+// start recording
 Game.start_recording_replay = () => {
 	// if a replay is being recorded return
 	if (Game.replay_last) return
@@ -275,6 +269,7 @@ Game.start_recording_replay = () => {
 	Game.replay_last = Date.now();
 }
 
+// stop recording
 Game.stop_recording_replay = () => {
 	// if a replay is not being recorded return
 	if (!Game.replay_last) return
@@ -312,15 +307,125 @@ Game.save_replay_to_clipboard = () => {
 	navigator.clipboard.writeText(JSON.stringify(Game.replay))
 }
 
-// get the distance between point1 and point2
-Game.getDistance = (point1, point2) => {
-	return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
+//
+// UI = user interface
+//
+
+// show a UI to the user
+Game.show_UI = (UI_name) => {
+	document.querySelector("#ui").innerHTML = ""
+	document.querySelector("#ui").appendChild(UI[UI_name]())
+	document.querySelector("#ui").style.display = "flex"
+	Game.in_UI = true
 }
 
-// function to smooth out unpredictability and lag in the netwerk
-Game.smooth = (DeltaTime, sprite, speed, x, y) => {
-	sprite.x = lerp(sprite.x, x, 0.1)
-	sprite.y = lerp(sprite.y, y, 0.1)
+// close the currently shown
+Game.close_UI = (text) => {
+	document.querySelector("#ui").style.display = "none"
+	Game.in_UI = false
+}
+
+// reset chat and all characters on the map
+Game.reset_scene = () => {
+	// remove all messages from the chat
+	chat_messages.innerHTML = ""
+	// remove all characters on the map
+	for (const key in Game.characters) {
+		Game.characters[key].sprite.destroy()
+		delete Game.characters[key]
+	}
+}
+
+// insert a message into the HTML tree
+Game.output_message_to_chat = (name, msg) => {
+	let movedown = false
+	if (chat_messages.clientHeight + chat_messages.scrollTop >= chat_messages.scrollHeight) {
+		movedown = true
+	}
+	const div = document.createElement('div');
+	div.classList.add('message');
+
+	const p = document.createElement('p');
+	p.classList.add('username');
+	p.innerText = name + "  " + msg
+	div.appendChild(p);
+
+	// append the message to the chat
+	chat_messages.append(div);
+	if (movedown) {
+		chat_messages.scrollTop = chat_messages.scrollHeight; // Scroll down
+	}
+}
+
+//
+// socket
+//
+
+// make a web socket
+Game.initialize_web_socket = (url, UUID, pass) => {
+	console.info("connected to server")
+	// create a web socket
+	Game.socket = new WebSocket(
+		url,
+		[UUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
+	);
+	Game.socket.onclose = Game.socket_on_close
+	Game.socket.onmessage = Game.socket_on_message
+
+	// if a ui is opened close it
+	Game.close_UI()
+	// clean the scene
+	Game.reset_scene()
+	// unload all images
+	Game.unload_images()
+	// load some images for later
+	Game.load_images([
+		{
+			name: "D_alpha",
+			path: "assets/D_alpha.png",
+		},
+		{
+			name: "P_bolt",
+			path: "assets/P_bolt.png",
+		},
+		{
+			name: "copper-wall",
+			path: "assets/copper-wall.png",
+		},
+	], () => {
+		// so you visually know where the center of the map is
+		Game.scene.add.image(0, 0, 'copper-wall');
+		Game.scene.add.image(0, pixelsPerMeter, 'copper-wall');
+		Game.scene.add.image(pixelsPerMeter, 0, 'copper-wall');
+		Game.scene.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
+	})
+}
+
+// when the socket closes (either because the client disconnects for the server closes)
+Game.socket_on_close = () => {
+	console.info("disconnected from server")
+	// if a replay is being recorded stop recording
+	Game.stop_recording_replay()
+
+	Game.show_UI("main_menu")
+	Game.socket = undefined
+}
+
+// when the server sends a message through the socket
+Game.socket_on_message = (event) => {
+	const updates = JSON.parse(event.data)
+	// uncomment the line below to log all updates from the server
+	// console.log('updates from server ', updates);
+
+	if (Game.replay_last != undefined) {
+		Game.replay.push({
+			time: Date.now() - Game.replay_last,
+			updates,
+		})
+		Game.replay_last = Date.now()
+	}
+
+	Game.handle_updates(updates)
 }
 
 // handle updates from the server or a reply
@@ -360,119 +465,8 @@ Game.handle_updates = (updates) => {
 }
 
 //
-// UI = user interface
+// images
 //
-
-// show a UI to the user
-Game.show_UI = (UI_name) => {
-	document.querySelector("#ui").innerHTML = ""
-	document.querySelector("#ui").appendChild(UI[UI_name]())
-	document.querySelector("#ui").style.display = "flex"
-	Game.in_UI = true
-}
-
-// close the currently shown
-Game.close_UI = (text) => {
-	document.querySelector("#ui").style.display = "none"
-	Game.in_UI = false
-}
-
-Game.reset_scene = () => {
-	// remove all messages from the chat
-	chat_messages.innerHTML = ""
-	// remove all characters on the map
-	for (const key in Game.characters) {
-		Game.characters[key].sprite.destroy()
-		delete Game.characters[key]
-	}
-}
-
-Game.initialize_web_socket = (url, UUID, pass) => {
-	console.info("connected to server")
-	// create a web socket
-	Game.socket = new WebSocket(
-		url,
-		[UUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
-	);
-
-	// when the socket closes (either because the client disconnects for the server closes)
-	Game.socket.onclose = () => {
-		console.info("disconnected from server")
-		Game.show_UI("main_menu")
-		Game.socket = undefined
-	}
-
-	// Listen for messages
-	Game.socket.addEventListener('message', (event) => {
-		const updates = JSON.parse(event.data)
-		// uncomment the line below to log all updates from the server
-		// console.log('updates from server ', updates);
-
-		if (Game.replay_last != undefined) {
-			Game.replay.push({
-				time: Date.now() - Game.replay_last,
-				updates,
-			})
-			Game.replay_last = Date.now()
-		}
-
-		Game.handle_updates(updates)
-	});
-
-	// if a ui is opened close it
-	Game.close_UI()
-
-	// if a replay is being recorded stop recording
-	Game.stop_recording_replay()
-
-	// clean the scene
-	Game.reset_scene()
-
-	// unload all images
-	Game.unload_images()
-
-	Game.load_images([
-		{
-			name: "D_alpha",
-			path: "assets/D_alpha.png",
-		},
-		{
-			name: "P_bolt",
-			path: "assets/P_bolt.png",
-		},
-		{
-			name: "copper-wall",
-			path: "assets/copper-wall.png",
-		},
-	], () => {
-		// so you visually know where the center of the map is
-		Game.scene.add.image(0, 0, 'copper-wall');
-		Game.scene.add.image(0, pixelsPerMeter, 'copper-wall');
-		Game.scene.add.image(pixelsPerMeter, 0, 'copper-wall');
-		Game.scene.add.image(pixelsPerMeter, pixelsPerMeter, 'copper-wall');
-	})
-}
-
-// insert a message into the HTML tree
-Game.output_message_to_chat = (name, msg) => {
-	let movedown = false
-	if (chat_messages.clientHeight + chat_messages.scrollTop >= chat_messages.scrollHeight) {
-		movedown = true
-	}
-	const div = document.createElement('div');
-	div.classList.add('message');
-
-	const p = document.createElement('p');
-	p.classList.add('username');
-	p.innerText = name + "  " + msg
-	div.appendChild(p);
-
-	// append the message to the chat
-	chat_messages.append(div);
-	if (movedown) {
-		chat_messages.scrollTop = chat_messages.scrollHeight; // Scroll down
-	}
-}
 
 // load images from an array of {name, path}
 Game.load_images = (images, run) => {
@@ -493,152 +487,173 @@ Game.unload_images = () => {
 	})
 }
 
-class Example extends Phaser.Scene {
+//
+// keys
+//
+
+Game.set_up_key_events = () => {
+	Game.scene.input.keyboard.on('keydown', (event) => {
+		if (event.key == " ") {
+			if (Game.socket == undefined || !activeDroneUUIDs[0] || Game.viewing_replay) return
+			Game.socket_stream.push({
+				type: "move",
+				data: {
+					DUUID: activeDroneUUIDs[0],
+					x: camPos.x / pixelsPerMeter,
+					y: camPos.y / pixelsPerMeter,
+				},
+			})
+		} else if (event.key == "Escape") {
+			if (Game.in_UI) {
+				Game.close_UI()
+			} else {
+				if (document.activeElement.tagName == "BODY") {
+					if (Game.socket == undefined) {
+						Game.show_UI("main_menu")
+					} else {
+						Game.show_UI("play_menu")
+					}
+				} else {
+					// unfocus the current element
+					document.activeElement.blur()
+				}
+			}
+		}
+		keysPressed[event.key] = true
+	});
+	Game.scene.input.keyboard.on('keyup', (event) => {
+		keysPressed[event.key] = undefined
+	});
+
+	let firingInterval
+	let lastFireX = 0
+	let lastFireY = 0
+
+	Game.scene.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
+		if (firingInterval == undefined) {
+			firingInterval = setInterval(() => {
+				
+				if (Game.socket == undefined || Game.viewing_replay) return
+
+				if (Game.getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY, }) > pixelsPerMeter) {
+					for (let i = 0; i < activeDroneUUIDs.length; i++) {
+						const drone = Game.characters[activeDroneUUIDs[i]]
+						Game.socket_stream.push({
+							type: "shoot",
+							data: {
+								DUUID: activeDroneUUIDs[i],
+								rad: Math.atan2(pointer.worldY / pixelsPerMeter - drone.gameState.y, pointer.worldX / pixelsPerMeter - drone.gameState.x),
+							},
+						})
+					}
+					lastFireX = pointer.worldX
+					lastFireY = pointer.worldY
+				}
+			}, 1000)
+		}
+	})
+	Game.scene.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
+		if (Game.socket == undefined || Game.viewing_replay) return
+
+		const { worldX, worldY } = pointer
+
+		clearInterval(firingInterval)
+		firingInterval = undefined
+
+		for (let i = 0; i < activeDroneUUIDs.length; i++) {
+			const drone = Game.characters[activeDroneUUIDs[i]]
+			Game.socket_stream.push({
+				type: "shoot",
+				data: {
+					DUUID: activeDroneUUIDs[i],
+				},
+			})
+		}
+	})
+}
+
+//
+// loops
+//
+
+// 10 Times a second
+// if Game.socket_stream has something socket.emit it
+Game.socket_stream_loop = () => {
+	if (Game.socket && Game.socket.readyState == 1 && Game.socket_stream.length > 0) {
+		let actions = Game.socket_stream.slice(0, 10)
+		Game.socket_stream.splice(0, 10)
+		console.log("actions", actions)
+
+		Game.socket.send(JSON.stringify(actions))
+	}
+	setTimeout(() => { Game.socket_stream_loop() }, 100); // continue the loop
+}
+
+// this runs every frame (it is called by phaser)
+Game.frame_loop = () => {
+	const DeltaTime = secondsSinceLastFrame()
+
+	// smooth movement for characters
+	for (const key in Game.characters) {
+		const character = Game.characters[key];
+		Game.smooth(DeltaTime, character.sprite, character.gameState.speed * pixelsPerMeter, character.gameState.x * pixelsPerMeter, character.gameState.y * pixelsPerMeter)
+	}
+
+	// to stop the camera from moving around while you type in the chat
+	if (document.activeElement.id == "msg") return
+
+	// control over the camera
+	const u = keysPressed["w"] // up
+	const d = keysPressed["s"] // down
+	const l = keysPressed["a"] // left
+	const r = keysPressed["d"] // right
+
+	// if a control
+	if (u || d || l || r) {
+		// do nothing for opposite controls
+		if (u && d && l && r) {
+			return
+		} else if (u && d && !l && !r) {
+			return
+		} else if (!u && !d && l && r) {
+			return
+		}
+		// update camera
+		if (u) camPos.y -= 5
+		if (d) camPos.y += 5
+		if (l) camPos.x -= 5
+		if (r) camPos.x += 5
+	}
+
+	if (!Game.cam) return
+	// move the camera
+	Game.cam.pan(camPos.x, camPos.y, 100, 'Linear')
+}
+
+//
+// Phaser
+//
+
+class PhaserScene extends Phaser.Scene {
 	constructor() {
 		super();
 	}
 
 	// not using preload() right now
 	preload() {}
+	update() {}
 
 	create() {
 		Game.scene = this
-		cam = this.cameras.main
-		cam.zoom = 1
+		Game.cam = this.cameras.main
+		this.cameras.main.zoom = 1
 
-		this.input.keyboard.on('keydown', (event) => {
-			if (event.key == " ") {
-				if (!activeDroneUUIDs[0] || Game.viewing_replay) return
-				socket_stream.push({
-					type: "move",
-					data: {
-						DUUID: activeDroneUUIDs[0],
-						x: camPos.x / pixelsPerMeter,
-						y: camPos.y / pixelsPerMeter,
-					},
-				})
-			} else if (event.key == "Escape") {
-				if (Game.in_UI) {
-					Game.close_UI()
-				} else {
-					if (document.activeElement.tagName == "BODY") {
-						if (Game.socket == undefined) {
-							Game.show_UI("main_menu")
-						} else {
-							Game.show_UI("play_menu")
-						}
-					} else {
-						// unfocus the current element
-						document.activeElement.blur()
-					}
-				}
-			}
-			keysPressed[event.key] = true
-		});
-		this.input.keyboard.on('keyup', (event) => {
-			keysPressed[event.key] = undefined
-		});
-		let firingInterval
-		let lastFireX = 0
-		let lastFireY = 0
+		Game.set_up_key_events()
 
-		this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
-			if (Game.viewing_replay) return
+		// start the socket_stream loop
+		Game.socket_stream_loop()
 
-			if (firingInterval == undefined) {
-				firingInterval = setInterval(() => {
-					if (Game.getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY, }) > pixelsPerMeter) {
-						for (let i = 0; i < activeDroneUUIDs.length; i++) {
-							const drone = Game.characters[activeDroneUUIDs[i]]
-							socket_stream.push({
-								type: "shoot",
-								data: {
-									DUUID: activeDroneUUIDs[i],
-									rad: Math.atan2(pointer.worldY / pixelsPerMeter - drone.gameState.y, pointer.worldX / pixelsPerMeter - drone.gameState.x),
-								},
-							})
-						}
-						lastFireX = pointer.worldX
-						lastFireY = pointer.worldY
-					}
-				}, 1000)
-			}
-		})
-		this.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
-			if (Game.viewing_replay) return
-
-			const { worldX, worldY } = pointer
-
-			clearInterval(firingInterval)
-			firingInterval = undefined
-
-			for (let i = 0; i < activeDroneUUIDs.length; i++) {
-				const drone = Game.characters[activeDroneUUIDs[i]]
-				socket_stream.push({
-					type: "shoot",
-					data: {
-						DUUID: activeDroneUUIDs[i],
-					},
-				})
-			}
-		})
-
-		// start the loop
-		this.loop()
-	}
-
-	// 10 Times a second
-	// if socket_stream has something socket.emit it
-	loop() {
-		if (Game.socket && Game.socket.readyState == 1 && socket_stream.length > 0) {
-			let actions = socket_stream.slice(0, 10)
-			socket_stream.splice(0, 10)
-			console.log("actions", actions)
-
-			Game.socket.send(JSON.stringify(actions))
-		}
-		setTimeout(() => { this.loop() }, 100); // continue the loop
-	}
-
-	// this runs every frame
-	update() {
-		const DeltaTime = secondsSinceLastFrame()
-
-		// smooth movement for characters
-		for (const key in Game.characters) {
-			const character = Game.characters[key];
-			Game.smooth(DeltaTime, character.sprite, character.gameState.speed * pixelsPerMeter, character.gameState.x * pixelsPerMeter, character.gameState.y * pixelsPerMeter)
-		}
-
-		// to stop the camera from moving around while you type in the chat
-		if (document.activeElement.id == "msg") return
-
-		// control over the camera
-		const u = keysPressed["w"] // up
-		const d = keysPressed["s"] // down
-		const l = keysPressed["a"] // left
-		const r = keysPressed["d"] // right
-
-		// if a control
-		if (u || d || l || r) {
-			// do nothing for opposite controls
-			if (u && d && l && r) {
-				return
-			} else if (u && d && !l && !r) {
-				return
-			} else if (!u && !d && l && r) {
-				return
-			}
-			// update camera
-			if (u) camPos.y -= 5
-			if (d) camPos.y += 5
-			if (l) camPos.x -= 5
-			if (r) camPos.x += 5
-		}
-
-		if (!cam) return
-		cam.pan(camPos.x, camPos.y, 100, 'Linear')
-		// document.querySelector("#camdata").innerHTML = `${camPos.x} ${camPos.y}`
+		this.update = Game.frame_loop
 	}
 }
 
@@ -663,7 +678,7 @@ Game.start = () => {
 </div>`
 	Game.show_UI("main_menu")
 
-	Game.scene = new Example()
+	Game.scene = new PhaserScene()
 
 	Game.phaser = new Phaser.Game({
 		type: Phaser.AUTO,
