@@ -125,7 +125,6 @@ const UI = {
 				localStorage.setItem("UUID", UUID)
 
 				myUUID = localStorage.getItem("UUID")
-				chat_messages = document.querySelector("#chat_messages")
 				document.querySelector("#chat-form").addEventListener('submit', (e) => {
 					e.preventDefault();
 					if (Game.socket == undefined || Game.viewing_replay) return
@@ -287,15 +286,15 @@ Game.view_replay = (replay) => {
 	console.info("starting replay")
 	Game.viewing_replay = true
 	Game.reset_scene()
-	let i = 0
+	let i = -1
 	const looper = () => {
-		Game.handle_updates(replay[i].updates)
 		i++
-		if (i >= replay.length) {
+		if (i >= replay.length-1) { // -1 because arrays are zero-based and .length returns a one-based length (JavaScript is weird)
 			Game.viewing_replay = false
 			console.info("replay complete")
 			return
 		}
+		Game.handle_updates(replay[i].updates)
 		setTimeout(looper, replay[i].time);
 	}
 	looper()
@@ -327,6 +326,9 @@ Game.close_UI = (text) => {
 
 // reset chat and all characters on the map
 Game.reset_scene = () => {
+
+	activeDroneUUIDs = []
+
 	// remove all messages from the chat
 	chat_messages.innerHTML = ""
 	// remove all characters on the map
@@ -367,7 +369,7 @@ Game.initialize_web_socket = (url, UUID, pass) => {
 	// create a web socket
 	Game.socket = new WebSocket(
 		url,
-		[UUID, pass, "1.0.1"] // Ugly hack to send auth information and version to the server.
+		[UUID, pass, "1.1.0"] // Ugly hack to send auth information and version to the server.
 	);
 	Game.socket.onclose = Game.socket_on_close
 	Game.socket.onmessage = Game.socket_on_message
@@ -492,17 +494,37 @@ Game.unload_images = () => {
 //
 
 Game.set_up_key_events = () => {
+
+	let firingInterval
+	let lastFireX = 0
+	let lastFireY = 0
+
+	function firingIntervalFunction() {
+		const { worldX, worldY } = Game.phaser.input.pointers[0]
+
+		if (Game.socket == undefined || Game.viewing_replay) return
+
+		if (Game.getDistance({ x: lastFireX, y: lastFireY }, { x: worldX, y: worldY, }) > pixelsPerMeter) {
+			for (let i = 0; i < activeDroneUUIDs.length; i++) {
+				const drone = Game.characters[activeDroneUUIDs[i]]
+				Game.socket_stream.push({
+					type: "shoot",
+					data: {
+						DUUID: activeDroneUUIDs[i],
+						rad: Math.atan2(worldY / pixelsPerMeter - drone.gameState.y, worldX / pixelsPerMeter - drone.gameState.x),
+					},
+				})
+			}
+			lastFireX = worldX
+			lastFireY = worldY
+		}
+	}
+
 	Game.scene.input.keyboard.on('keydown', (event) => {
 		if (event.key == " ") {
-			if (Game.socket == undefined || !activeDroneUUIDs[0] || Game.viewing_replay) return
-			Game.socket_stream.push({
-				type: "move",
-				data: {
-					DUUID: activeDroneUUIDs[0],
-					x: camPos.x / pixelsPerMeter,
-					y: camPos.y / pixelsPerMeter,
-				},
-			})
+			if (firingInterval == undefined) {
+				firingInterval = setInterval(firingIntervalFunction, 1000)
+			}
 		} else if (event.key == "Escape") {
 			if (Game.in_UI) {
 				Game.close_UI()
@@ -521,55 +543,44 @@ Game.set_up_key_events = () => {
 		}
 		keysPressed[event.key] = true
 	});
+	
 	Game.scene.input.keyboard.on('keyup', (event) => {
+		if (event.key == " ") {
+			if (Game.socket == undefined || Game.viewing_replay) return
+
+			clearInterval(firingInterval)
+			firingInterval = undefined
+
+			for (let i = 0; i < activeDroneUUIDs.length; i++) {
+				const drone = Game.characters[activeDroneUUIDs[i]]
+				Game.socket_stream.push({
+					type: "shoot",
+					data: {
+						DUUID: activeDroneUUIDs[i],
+					},
+				})
+			}
+		}
 		keysPressed[event.key] = undefined
 	});
 
-	let firingInterval
-	let lastFireX = 0
-	let lastFireY = 0
-
 	Game.scene.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer) => {
-		if (firingInterval == undefined) {
-			firingInterval = setInterval(() => {
-				
-				if (Game.socket == undefined || Game.viewing_replay) return
-
-				if (Game.getDistance({ x: lastFireX, y: lastFireY }, { x: pointer.worldX, y: pointer.worldY, }) > pixelsPerMeter) {
-					for (let i = 0; i < activeDroneUUIDs.length; i++) {
-						const drone = Game.characters[activeDroneUUIDs[i]]
-						Game.socket_stream.push({
-							type: "shoot",
-							data: {
-								DUUID: activeDroneUUIDs[i],
-								rad: Math.atan2(pointer.worldY / pixelsPerMeter - drone.gameState.y, pointer.worldX / pixelsPerMeter - drone.gameState.x),
-							},
-						})
-					}
-					lastFireX = pointer.worldX
-					lastFireY = pointer.worldY
-				}
-			}, 1000)
-		}
-	})
-	Game.scene.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
-		if (Game.socket == undefined || Game.viewing_replay) return
+		if (Game.socket == undefined || !activeDroneUUIDs[0] || Game.viewing_replay) return
 
 		const { worldX, worldY } = pointer
 
-		clearInterval(firingInterval)
-		firingInterval = undefined
-
-		for (let i = 0; i < activeDroneUUIDs.length; i++) {
-			const drone = Game.characters[activeDroneUUIDs[i]]
-			Game.socket_stream.push({
-				type: "shoot",
-				data: {
-					DUUID: activeDroneUUIDs[i],
-				},
-			})
-		}
+		Game.socket_stream.push({
+			type: "move",
+			data: {
+				DUUID: activeDroneUUIDs[0],
+				x: worldX/ pixelsPerMeter,
+				y: worldY / pixelsPerMeter,
+			},
+		})
 	})
+	// Game.scene.input.on(Phaser.Input.Events.POINTER_UP, (pointer) => {
+		
+	// })
 }
 
 //
@@ -676,6 +687,9 @@ Game.start = () => {
 		</form>
 	</div>
 </div>`
+
+	chat_messages = document.querySelector("#chat_messages")
+
 	Game.show_UI("main_menu")
 
 	Game.scene = new PhaserScene()
